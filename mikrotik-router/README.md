@@ -29,8 +29,8 @@ scp admin@192.168.88.1:before-apply.backup snapshots/$(date -u +%Y-%m-%dT%H%M%SZ
 # 2. Stage sources
 scp config.rsc gkanapathy-mbpmx.pub admin@192.168.88.1:
 
-# 3. Wipe + replay
-ssh admin@192.168.88.1 '/system reset-configuration no-defaults=yes skip-backup=yes run-after-reset=config.rsc'
+# 3. Wipe + replay (keep-users preserves admin's password + ssh keys across the reset)
+ssh admin@192.168.88.1 '/system reset-configuration no-defaults=yes skip-backup=yes keep-users=yes run-after-reset=config.rsc'
 ```
 
 The router reboots into a blank state and runs `config.rsc`. ~60–90s later

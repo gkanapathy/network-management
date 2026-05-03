@@ -42,10 +42,22 @@ router by hand — drift will get wiped on the next apply.
 
 - Plug monkeybrains into ether2 (WAN). DHCP client + masquerade NAT are
   already configured; should Just Work.
-- When sonic comes online, mirror the ether2 setup on `sfp-sfpplus1` and
-  add per-SSID WAN failover (mangle marks + routing tables). Separate pass.
 - Tighten `/ip ssh password-authentication` from `yes` back to
   `yes-if-no-key` once we trust the apply flow.
+- **Audit `config.rsc` against
+  [`mikrotik-router/snapshots/factory-defconf-7.21.4.rsc`](mikrotik-router/snapshots/factory-defconf-7.21.4.rsc).**
+  Diff our IaC config against the shipping defconf and pull in any sensible
+  defaults / hardening we omitted (e.g. things in `/ip neighbor`,
+  `/tool romon`, `/ip settings`, etc. we may not have mirrored).
+- **Add IPv6 to all VLANs.** ULA + (eventually) PD from the WAN. IPv6
+  link-local on the mgmt VLAN is automatic and stays up regardless of L3
+  config — so the IPv6-link-local recovery path documented in
+  `mikrotik-router/README.md` keeps working even after IPv6 changes (as long
+  as the bridge itself is alive).
+- **Sonic WAN buildout** (when the line is up): mirror the ether2 setup on
+  `sfp-sfpplus1`, then implement per-SSID WAN selection per PLAN.md —
+  plumtree → sonic primary, guest/iot → monkeybrains primary, failover
+  either way. Separate pass via mangle marks + routing tables.
 
 ## Memory
 

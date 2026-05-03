@@ -80,11 +80,14 @@ add address=192.168.20.1/24 interface=vlan20 network=192.168.20.0
 add address=192.168.30.1/24 interface=vlan30 network=192.168.30.0
 
 # --- admin SSH key (early: regain key auth ASAP) ---
+# Idempotent: with `keep-users=yes` on reset, the previous key survives.
+# Clear before re-importing so we don't accumulate duplicates each apply.
 :if ([:len [/file/find name=gkanapathy-mbpmx.pub]] > 0) do={
+    /user/ssh-keys/remove [find user=admin]
     /user/ssh-keys/import public-key-file=gkanapathy-mbpmx.pub user=admin
     :log info "config.rsc: ssh key imported"
 } else={
-    :log warning "config.rsc: gkanapathy-mbpmx.pub not present; skipping ssh key import"
+    :log warning "config.rsc: gkanapathy-mbpmx.pub not present; existing keys (if any) retained"
 }
 
 # SSH server hardening + behavior:
