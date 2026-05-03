@@ -32,6 +32,13 @@ set name=plumtree-rtr
 /ip settings
 set rp-filter=strict tcp-syncookies=yes send-redirects=no
 
+# --- LEDs ---
+# Turn off the front-panel LEDs after 1h of uptime. Lets us see boot
+# health visually for the first hour, then dark. Try it; flip to
+# immediate or never if we want different behavior.
+/system leds settings
+set all-leds-off=after-1h
+
 # --- timezone + NTP ---
 # Pin time-zone explicitly; turn off autodetect (which uses IP-geolocation
 # via a MikroTik service over the WAN). Router is stationary, so we don't
