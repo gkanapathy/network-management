@@ -32,6 +32,17 @@ set name=plumtree-rtr
 /ip settings
 set rp-filter=strict tcp-syncookies=yes send-redirects=no
 
+# --- timezone + NTP ---
+# Pin time-zone explicitly; turn off autodetect (which uses IP-geolocation
+# via a MikroTik service over the WAN). Router is stationary, so we don't
+# need autodetect, and pinning avoids a surprise override if the geo
+# lookup ever decides we're somewhere else.
+/system clock
+set time-zone-autodetect=no time-zone-name=America/Los_Angeles
+# NTP via Cloudflare + Google anycast. Defaults to unicast mode.
+/system ntp client
+set enabled=yes servers=time.cloudflare.com,time.google.com
+
 # --- bridge (vlan-filtering enabled at the END after VLAN table is populated) ---
 /interface bridge
 add admin-mac=04:F4:1C:51:BA:D8 auto-mac=no name=bridge
