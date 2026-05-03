@@ -25,20 +25,31 @@
 /system identity
 set name=plumtree-rtr
 
+# --- IP-stack hardening ---
+# Defconf doesn't touch /ip settings; defaults are too lax. Safe in a
+# single-WAN topology with no asymmetric routing — revisit when sonic
+# comes online and per-SSID failover may introduce asymmetry.
+/ip settings
+set rp-filter=strict tcp-syncookies=yes send-redirects=no
+
 # --- bridge (vlan-filtering enabled at the END after VLAN table is populated) ---
 /interface bridge
 add admin-mac=04:F4:1C:51:BA:D8 auto-mac=no name=bridge
 
 # --- bridge ports ---
 # ether1 = trunk, others = access ports on VLAN 88. PVID=88 stamps untagged ingress.
+# Access ports get bpdu-guard=yes edge=yes: a downstream device sending BPDUs
+# (rogue switch / malicious endpoint) gets the port disabled instantly. ether1
+# is the trunk to the AP and intentionally not bpdu-guarded — the AP could
+# legitimately speak STP.
 /interface bridge port
 add bridge=bridge interface=ether1 pvid=88 comment="trunk to root AP"
-add bridge=bridge interface=ether3 pvid=88
-add bridge=bridge interface=ether4 pvid=88
-add bridge=bridge interface=ether5 pvid=88
-add bridge=bridge interface=ether6 pvid=88
-add bridge=bridge interface=ether7 pvid=88
-add bridge=bridge interface=ether8 pvid=88
+add bridge=bridge interface=ether3 pvid=88 bpdu-guard=yes edge=yes
+add bridge=bridge interface=ether4 pvid=88 bpdu-guard=yes edge=yes
+add bridge=bridge interface=ether5 pvid=88 bpdu-guard=yes edge=yes
+add bridge=bridge interface=ether6 pvid=88 bpdu-guard=yes edge=yes
+add bridge=bridge interface=ether7 pvid=88 bpdu-guard=yes edge=yes
+add bridge=bridge interface=ether8 pvid=88 bpdu-guard=yes edge=yes
 
 # --- VLAN L3 sub-interfaces on the bridge ---
 # All L3 (including mgmt) lives on /interface vlan; nothing on bridge directly.
@@ -98,10 +109,33 @@ add address=192.168.30.1/24 interface=vlan30 network=192.168.30.0
 #   post-quantum KEX (RouterOS 7.21.4 has none), so OpenSSH 9.x will still
 #   warn about "store now, decrypt later"; that warning won't go away until
 #   MikroTik ships PQ-KEX support upstream.
-# - host-key-type=ed25519: smaller, faster, modern key. Forces a host key
-#   regen on apply, which we already handle (`ssh-keygen -R` after reset).
+# - host-key-type=ed25519: smaller, faster, modern key.
+# - host-key-size=4096: dormant for ed25519, only matters if anyone ever
+#   flips host-key-type back to rsa; cheap to set.
+# - max-auth-tries=3: down from default 6; cheap brute-force resistance.
+# - forwarding-enabled=no: refuse SSH-tunnel/jump-host use of the router.
+# - regenerate-host-key: explicit rotation. Apply flow already does
+#   `ssh-keygen -R`, so the new fingerprint is no surprise.
 /ip ssh
-set password-authentication=yes strong-crypto=yes host-key-type=ed25519
+set password-authentication=yes strong-crypto=yes \
+    host-key-type=ed25519 host-key-size=4096 \
+    max-auth-tries=3 forwarding-enabled=no
+/ip ssh regenerate-host-key
+
+# --- service surface ---
+# Lock down management services. Bind interactive surfaces to mgmt+plumtree
+# only (plus IPv6 link-local so README.md's recovery path stays usable);
+# disable everything else.
+# - /ip service `address=` applies to both IPv4 and IPv6 sources, so an
+#   IPv4-only list would silently fence off IPv6 link-local recovery.
+# - api-ssl is disabled by default (no cert); not setting it.
+/ip service
+set telnet disabled=yes
+set ftp    disabled=yes
+set api    disabled=yes
+set ssh    address=192.168.88.0/24,192.168.10.0/24,fe80::/10
+set winbox address=192.168.88.0/24,192.168.10.0/24,fe80::/10
+set www    address=192.168.88.0/24,192.168.10.0/24,fe80::/10
 
 # --- DHCP pools ---
 /ip pool
@@ -144,7 +178,7 @@ add address=192.168.88.1 name=router.lan type=A
 add action=accept chain=input comment="accept established,related,untracked" connection-state=established,related,untracked
 add action=drop   chain=input comment="drop invalid" connection-state=invalid
 add action=accept chain=input comment="accept ICMP" protocol=icmp
-add action=accept chain=input comment="accept to local loopback (CAPsMAN)" dst-address=127.0.0.1
+add action=accept chain=input comment="accept loopback" in-interface=lo src-address=127.0.0.1 dst-address=127.0.0.1
 add action=drop   chain=input comment="drop everything not from LAN" in-interface-list=!LAN
 
 # --- forward chain ---
@@ -210,6 +244,11 @@ set discover-interface-list=LAN
 set allowed-interface-list=LAN
 /tool mac-server mac-winbox
 set allowed-interface-list=LAN
+
+# --- bandwidth-server: off ---
+# Default is enabled+authenticate, exposes a btest server. Unused here.
+/tool bandwidth-server
+set enabled=no
 
 # --- enable VLAN filtering (LAST; after all VLAN entries are in place) ---
 /interface bridge

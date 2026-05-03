@@ -1,5 +1,10 @@
 # Plan: rb5009 VLAN + DHCP + firewall buildout
 
+> **Historical.** The original buildout plan; substantively shipped during the
+> IaC pass. Live intent now lives in [`config.rsc`](config.rsc); operational
+> notes in [`README.md`](README.md). Kept for context on the original
+> motivations, ordering, and per-step rationale.
+
 ## Context
 
 Omada controller and APs are set up: two EAP770s adopted, mesh formed on

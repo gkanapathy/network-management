@@ -44,11 +44,6 @@ router by hand — drift will get wiped on the next apply.
   already configured; should Just Work.
 - Tighten `/ip ssh password-authentication` from `yes` back to
   `yes-if-no-key` once we trust the apply flow.
-- **Audit `config.rsc` against
-  [`mikrotik-router/snapshots/factory-defconf-7.21.4.rsc`](mikrotik-router/snapshots/factory-defconf-7.21.4.rsc).**
-  Diff our IaC config against the shipping defconf and pull in any sensible
-  defaults / hardening we omitted (e.g. things in `/ip neighbor`,
-  `/tool romon`, `/ip settings`, etc. we may not have mirrored).
 - **Add IPv6 to all VLANs.** ULA + (eventually) PD from the WAN. IPv6
   link-local on the mgmt VLAN is automatic and stays up regardless of L3
   config — so the IPv6-link-local recovery path documented in
