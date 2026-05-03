@@ -112,14 +112,14 @@ add address=192.168.30.1/24 interface=vlan30 network=192.168.30.0
 # - host-key-type=ed25519: smaller, faster, modern key.
 # - host-key-size=4096: dormant for ed25519, only matters if anyone ever
 #   flips host-key-type back to rsa; cheap to set.
-# - max-auth-tries=3: down from default 6; cheap brute-force resistance.
 # - forwarding-enabled=no: refuse SSH-tunnel/jump-host use of the router.
 # - regenerate-host-key: explicit rotation. Apply flow already does
 #   `ssh-keygen -R`, so the new fingerprint is no surprise.
+# Note: there is no `max-auth-tries` property on /ip ssh in 7.21.4 (that's
+# OpenSSH's MaxAuthTries). Brute-force resistance lives elsewhere — we
+# rely on key-only auth + service `address=` scoping below.
 /ip ssh
-set password-authentication=yes strong-crypto=yes \
-    host-key-type=ed25519 host-key-size=4096 \
-    max-auth-tries=3 forwarding-enabled=no
+set password-authentication=yes strong-crypto=yes host-key-type=ed25519 host-key-size=4096 forwarding-enabled=no
 /ip ssh regenerate-host-key
 
 # --- service surface ---
