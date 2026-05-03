@@ -32,12 +32,33 @@ set name=plumtree-rtr
 /ip settings
 set rp-filter=strict tcp-syncookies=yes send-redirects=no
 
-# --- LEDs ---
-# Turn off the front-panel LEDs after 1h of uptime. Lets us see boot
-# health visually for the first hour, then dark. Try it; flip to
-# immediate or never if we want different behavior.
+# --- LEDs + reset-button-press toggle ---
+# Default: turn off the front-panel LEDs after 1h of uptime. Lets us
+# see boot health visually for the first hour, then dark.
 /system leds settings
 set all-leds-off=after-1h
+
+# Bind a brief (<2s) press of the front Reset button — only while
+# RouterOS is running, so it doesn't interfere with the boot-time
+# factory-reset / netinstall behavior — to a script that toggles the
+# LEDs between "on permanently" (never) and "off immediately"
+# (immediate). Useful for visual inspection without re-applying config.
+# The toggle persists until the next reset+replay, which restores
+# all-leds-off=after-1h.
+/system script
+:if ([:len [/system/script/find name=toggle-leds]] > 0) do={
+    /system/script/remove [find name=toggle-leds]
+}
+add name=toggle-leds source={
+    :local cur [/system/leds/settings/get all-leds-off]
+    :if ($cur = "never") do={
+        /system/leds/settings/set all-leds-off=immediate
+    } else={
+        /system/leds/settings/set all-leds-off=never
+    }
+}
+/system routerboard reset-button
+set enabled=yes hold-time=0s..2s on-event=toggle-leds
 
 # --- timezone + NTP ---
 # Pin time-zone explicitly; turn off autodetect (which uses IP-geolocation
