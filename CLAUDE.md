@@ -40,10 +40,14 @@ router by hand — drift will get wiped on the next apply.
 
 ## What's next
 
-- Plug monkeybrains into ether2 (WAN). DHCP client + masquerade NAT are
-  already configured; should Just Work.
 - Tighten `/ip ssh password-authentication` from `yes` back to
   `yes-if-no-key` once we trust the apply flow.
+- **Tighten DNS upstream so the ISP can't see LAN lookups.** Currently
+  `use-peer-dns=yes` (default) on the WAN DHCP client, and the router
+  acts as resolver for the LAN with `allow-remote-requests=yes` — so
+  every LAN device's DNS query egresses to monkeybrains' DNS. Set
+  `/ip dhcp-client set [find interface=ether2] use-peer-dns=no` and
+  `/ip dns set servers=1.1.1.1,8.8.8.8` (or trusted equivalents).
 - **Add IPv6 to all VLANs.** ULA + (eventually) PD from the WAN. IPv6
   link-local on the mgmt VLAN is automatic and stays up regardless of L3
   config — so the IPv6-link-local recovery path documented in
