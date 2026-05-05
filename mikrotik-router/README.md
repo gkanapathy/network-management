@@ -14,6 +14,7 @@ and re-apply.
   files. Reference + rollback.
 - `PLAN.md` — original buildout plan (VLANs/firewall/WAN). Historical /
   context; the live intent lives in `config.rsc`.
+- `IPV6-PLAN.md` — phased IPv6 plan (ULA, prefix delegation, firewall parity).
 
 ## Apply
 

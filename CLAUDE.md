@@ -57,11 +57,10 @@ router by hand — drift will get wiped on the next apply.
   every LAN device's DNS query egresses to monkeybrains' DNS. Set
   `/ip dhcp-client set [find interface=ether2] use-peer-dns=no` and
   `/ip dns set servers=1.1.1.1,8.8.8.8` (or trusted equivalents).
-- **Add IPv6 to all VLANs.** ULA + (eventually) PD from the WAN. IPv6
-  link-local on the mgmt VLAN is automatic and stays up regardless of L3
-  config — so the IPv6-link-local recovery path documented in
-  `mikrotik-router/README.md` keeps working even after IPv6 changes (as long
-  as the bridge itself is alive).
+- **Add IPv6 to all VLANs.** See
+  [mikrotik-router/IPV6-PLAN.md](mikrotik-router/IPV6-PLAN.md) (ULA first,
+  then WAN prefix delegation when available). Link-local recovery stays
+  documented in `mikrotik-router/README.md` as long as the bridge is alive.
 - **Sonic WAN buildout** (when the line is up): mirror the ether2 setup on
   `sfp-sfpplus1`, then implement per-SSID WAN selection per PLAN.md —
   plumtree → sonic primary, guest/iot → monkeybrains primary, failover
