@@ -4,9 +4,9 @@
 # Claude Code: local-only per-machine settings
 .claude/settings.local.json
 
-# Omada controller runtime: DB, logs, work, backups.
-# Docker auto-creates these on `compose up` — see omada-controller/README.md.
-omada-controller/omada/
+# Software Omada controller runtime: DB, logs, work, backups.
+# Docker auto-creates these on `compose up`.
+omada-controller/macos-software/omada/
 
 # MikroTik binary backups: sensitive (contain admin secrets),
 # restorable via netinstall, not useful for code review.
