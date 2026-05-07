@@ -179,8 +179,8 @@ rules.
 ## Phase B-MB — Monkeybrains PD + single GUA per VLAN
 
 Single WAN exists; "primary-only" is "the only one." No source-PBR
-needed yet — only one default v6 route. **Run probes 1 and 3 from
-"Schema verification probe" below before applying this phase.**
+needed yet — only one default v6 route. (Probes 1 and 3 already
+verified 2026-05-07 — see "Schema verification probe" below.)
 
 ### 1. DHCPv6-PD client on `ether2`
 
@@ -258,8 +258,8 @@ Bundled milestone, triggered when Sonic is provisioned. The shared
 machinery (Netwatch, mangle marks, routing tables) is built once and
 both protocols hook into it. Detailed config is written against the
 actual Sonic line specs at apply-day; this section captures the
-**model**. **Run probe 2 from "Schema verification probe" before
-applying this phase.**
+**model**. (Probe 2 already verified 2026-05-07 — see "Schema
+verification probe" below.)
 
 ### Shared infrastructure (built once, used by both)
 
@@ -319,8 +319,8 @@ applying this phase.**
 
 ### Phase C checklist
 
-- [ ] Probe 2 (`/ipv6 nd prefix` per-prefix preferred-lifetime override)
-      confirmed.
+- [x] Probe 2 (`/ipv6 nd prefix` per-prefix preferred-lifetime override)
+      confirmed (2026-05-07; see "Schema verification probe" below).
 - [ ] Netwatch entries probing both WANs, scripts wired on up/down.
 - [ ] Routing tables `mb` and `sonic` each carry both default routes,
       different distances.
