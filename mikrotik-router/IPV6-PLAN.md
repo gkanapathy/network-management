@@ -179,8 +179,8 @@ rules.
 ## Phase B-MB — Monkeybrains PD + single GUA per VLAN
 
 Single WAN exists; "primary-only" is "the only one." No source-PBR
-needed yet — only one default v6 route. **Run probes 1 and 3 from
-"Schema verification probe" below before applying this phase.**
+needed yet — only one default v6 route. (Probes 1 and 3 already
+verified 2026-05-07 — see "Schema verification probe" below.)
 
 ### 1. DHCPv6-PD client on `ether2`
 
@@ -210,12 +210,25 @@ Notes:
 For each of `vlan88`, `vlan10`, `vlan20`, `vlan30`, add:
 
 ```
-/ipv6 address add address=::1 from-pool=mb-pd interface=vlanN advertise=yes
+/ipv6 address add from-pool=mb-pd interface=vlanN advertise=yes
 ```
 
-The `::1` interface-id lives inside whichever `/64` the pool hands out,
-regardless of parent-prefix length. Re-derives automatically on
-renewal.
+**No `address=` argument** — RouterOS 7.21.4's `from-pool=` semantics
+is **prefix-only-to-interface**: the pool's `/64` is assigned to the
+VLAN as a network address (`<pool-/64>::/64`) for RA emission. The
+router does **not** get a specific GUA host address per VLAN from this
+entry. Clients SLAAC their own GUAs; the router stays reachable via
+link-local (always advertised as the RA gateway) and the per-VLAN ULA
+`::1` from Phase A. Confirmed by probe 1 below — earlier forms tested
+and rejected:
+
+- `add address=::1 from-pool=mb-pd interface=vlanN` → INVALID
+  (literal `::1/64`, not combined with pool prefix).
+- `add address=::2 from-pool=mb-pd interface=vlanN` → same INVALID.
+- `add from-pool=mb-pd interface=vlanN eui-64=yes` → INVALID
+  (`::/64`, no IID computed).
+
+Re-derives automatically on renewal — see probe 3 below.
 
 ### 3. DNS
 
@@ -229,10 +242,12 @@ with `/ipv6 route print` and a `ping6` to a global target.
 
 ### Phase B-MB checklist
 
-- [ ] Probe 1 (`from-pool=` syntax) and probe 3 (renewal hygiene)
-      confirmed on the live router.
+- [x] Probe 1 (`from-pool=` syntax) and probe 3 (renewal hygiene)
+      confirmed on the live router (2026-05-07; see "Schema verification
+      probe" below). Syntax correction applied to §2 above.
 - [ ] `/ipv6 dhcp-client print detail` shows `bound`, `mb-pd` populated.
-- [ ] `/ipv6 address print` shows per-VLAN GUA derived from `mb-pd`.
+- [ ] `/ipv6 address print` shows per-VLAN pool-derived `/64` advertised
+      on each VLAN; LAN clients SLAAC GUAs in those `/64`s.
 - [ ] `::/0` present in `/ipv6 route print`.
 - [ ] `ping6 google.com` from each SSID succeeds, with source from the
       `mb-pd` `/64`.
@@ -243,8 +258,8 @@ Bundled milestone, triggered when Sonic is provisioned. The shared
 machinery (Netwatch, mangle marks, routing tables) is built once and
 both protocols hook into it. Detailed config is written against the
 actual Sonic line specs at apply-day; this section captures the
-**model**. **Run probe 2 from "Schema verification probe" before
-applying this phase.**
+**model**. (Probe 2 already verified 2026-05-07 — see "Schema
+verification probe" below.)
 
 ### Shared infrastructure (built once, used by both)
 
@@ -304,8 +319,8 @@ applying this phase.**
 
 ### Phase C checklist
 
-- [ ] Probe 2 (`/ipv6 nd prefix` per-prefix preferred-lifetime override)
-      confirmed.
+- [x] Probe 2 (`/ipv6 nd prefix` per-prefix preferred-lifetime override)
+      confirmed (2026-05-07; see "Schema verification probe" below).
 - [ ] Netwatch entries probing both WANs, scripts wired on up/down.
 - [ ] Routing tables `mb` and `sonic` each carry both default routes,
       different distances.
@@ -326,26 +341,68 @@ If the apply window is too long, split Phase C:
 - **C-v6**: dual-GUA layered on top of working PBR. Reuses the same
   Netwatch + routing-table scaffolding.
 
-## Schema verification probe
+## Schema verification probe — 2026-05-07: completed
 
-Some load-bearing RouterOS bits weren't covered by the earlier PD
-probe and need sanity-checking on the live router with the same
-probe-then-revert pattern (`comment="probe-only-remove-after"`,
-`/export hide-sensitive` diff before/after).
+Ran early (rather than between Phase B-MB and Phase C) to de-risk
+both phases before any of their config gets committed. Probe-then-
+revert on `vlan88` with `comment="probe-only-remove-after"`; pre/post
+`/export hide-sensitive` differed only by timestamp. All three probes
+used a temporary `/ipv6 dhcp-client` on `ether2` with
+`pool-name=mb-pd` (the same shape Phase B-MB will use).
 
-| # | What to confirm                                                                                                | Gates       | Why                                                            |
-|---|----------------------------------------------------------------------------------------------------------------|-------------|----------------------------------------------------------------|
-| 1 | `/ipv6 address from-pool=mb-pd address=::1 interface=vlan10` is accepted; resulting addr is `<pool-/64>:1/64`  | Phase B-MB  | B-MB depends on this exact form.                               |
-| 2 | `/ipv6 nd prefix` accepts per-prefix `preferred-lifetime` overrides (incl. `=0`); a script-driven flip emits a fresh RA promptly | Phase C     | RA-timer model is load-bearing for v6 failover.                |
-| 3 | `/ipv6 dhcp-client renew` re-derives `from-pool=` addresses; LAN clients see new RA with new prefix and the old one deprecated | Phase B-MB  | Renewal must not strand LAN clients.                           |
+### Probe 1 — `/ipv6 address from-pool=` syntax (Phase B-MB gate): finding — **prefix-only-to-interface**
 
-If probe 2 fails, the fallback for Phase C is **full-RA-replacement**
-in the Netwatch script (delete + re-add `/ipv6 nd prefix` entries for
-the affected VLAN). Less elegant, same outcome.
+The originally-assumed form (`address=::1 from-pool=mb-pd`) is **not**
+how RouterOS 7.21.4 combines an interface-id with the pool prefix. It
+doesn't combine them at all. Forms tested:
 
-Hygiene: all probes use `comment="probe-only-remove-after"` and are
-removed before any `/export` is captured into `snapshots/`. Nothing
-lands in `config.rsc` from these probes.
+| Form                                                                       | Result                                              |
+|----------------------------------------------------------------------------|-----------------------------------------------------|
+| `add address=::1 from-pool=mb-pd interface=vlan88`                         | INVALID — literal `::1/64`, no pool prefix applied  |
+| `add address=::2 from-pool=mb-pd interface=vlan88`                         | INVALID — same                                      |
+| `add from-pool=mb-pd interface=vlan88 eui-64=yes`                          | INVALID — `::/64`, no IID computed                  |
+| `add from-pool=mb-pd interface=vlan88` (no `address=`)                     | **VALID** — `2607:f598:d488:6100::/64` on vlan88    |
+
+The valid form assigns the pool's `/64` to the VLAN as a network
+address. The router has no GUA host address from this entry; clients
+SLAAC; router-to-client reachability uses link-local (RA gateway) and
+the per-VLAN ULA `::1` from Phase A. Phase B-MB §2 above and the
+"Where to edit `config.rsc`" section below are written against this
+finding.
+
+### Probe 2 — `/ipv6 nd prefix` per-prefix `preferred-lifetime` (Phase C gate): finding — **works cleanly**
+
+`add prefix=2607:f598:d488:6100::/64 interface=vlan88
+preferred-lifetime=0s` was accepted. Resulting entry has
+`preferred-lifetime=0s`, default `valid-lifetime=4w2d`,
+`on-link=yes`, `autonomous=yes`.
+
+Script-driven flips: `set [find ...] preferred-lifetime=1w` and back
+to `0s` both succeeded. This is exactly the operation the Phase C
+Netwatch failover script will perform, and it works in the
+running 7.21.4. **The full-RA-replacement fallback noted in Risks
+below is no longer needed; the v6 failover model is implementable
+as designed.**
+
+### Probe 3 — `/ipv6 dhcp-client renew` re-derivation (Phase B-MB gate): finding — **automatic**
+
+`renew [find pool-name=mb-pd]` refreshed the lease timer
+(2d23h59m40s → 2d23h59m55s) and the `from-pool=` address's `valid`
+and `preferred` timers tracked it (2d23h56m33s → 2d23h59m4s on
+`valid`; 2d16h44m33s → 2d16h47m4s on `preferred`). No manual
+intervention required.
+
+**Untested:** behavior when the ISP rotates the prefix (would need
+Monkeybrains to actually rotate, which can't be forced). Mechanism
+(`from-pool=` tracks the dhcp-client) should handle it transparently
+— the address re-derives from whatever new `/64` the pool ends up
+with.
+
+### Hygiene
+
+All probes used `comment="probe-only-remove-after"`. Removed before
+any `/export` was captured into `snapshots/`. Nothing landed in
+`config.rsc`.
 
 ## Edge cases by parent-prefix length
 
@@ -385,9 +442,9 @@ import, confirm `config.rsc: done` in the log.
 
 5. After WAN `/ip dhcp-client` block (`config.rsc:204–206`): `/ipv6
    dhcp-client` for `ether2` with `pool-name=mb-pd`.
-6. Update Phase A `/ipv6 address` entries: add a parallel
-   `from-pool=mb-pd address=::1 advertise=yes` entry per VLAN
-   (alongside the ULA `::1/64`, not replacing it).
+6. Add a parallel `/ipv6 address from-pool=mb-pd advertise=yes` entry
+   per VLAN alongside (not replacing) the Phase A ULA `::1/64`. **No
+   `address=` argument** — see Phase B-MB §2 and probe 1 above.
 
 **Phase C additions:**
 
@@ -438,10 +495,10 @@ succeed; `ip -6 addr` on the client shows a GUA in the `mb-pd` `/64`.
 
 ## Risks
 
-- **`/ipv6 nd prefix` per-prefix `preferred-lifetime` override
-  syntax** is load-bearing for the v6 failover model; verified by
-  probe 2 above. If RouterOS 7.21.4 doesn't expose it cleanly, fall
-  back to full-RA-replacement in the Netwatch script.
+- ~~`/ipv6 nd prefix` per-prefix `preferred-lifetime` override
+  syntax~~ **Resolved 2026-05-07** by probe 2 — works cleanly via
+  `set [find ...] preferred-lifetime=...`. Full-RA-replacement
+  fallback no longer needed.
 - **RA propagation latency** during failover — clients learn flipped
   preference on the next RA. Tighten `min-rtr-adv-interval`
   (15–30s) on the affected VLANs for faster recovery; don't go too
