@@ -1,5 +1,33 @@
 # macOS
 .DS_Store
+._*
+.AppleDouble
+.LSOverride
+
+# Editor swap / autosave / undo state
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.iml
+
+# Direnv / env files (per-machine; if you start using them, creds end up here)
+.env
+.env.*
+.envrc
+.direnv/
+
+# Generic key material — defensive, never commit even by accident
+*.key
+*.pem
+id_rsa
+id_ed25519
+id_dsa
+*.pfx
 
 # Claude Code: local-only per-machine settings
 .claude/settings.local.json

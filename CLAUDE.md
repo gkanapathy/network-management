@@ -5,12 +5,11 @@ This directory holds configuration and notes for the user's home network.
 ## Layout
 
 ```
-oc200/                # Active hardware Omada Controller (OC200 v1 @ .252)
-  README.md           # ops notes, beta-firmware caveat, backup/restore workflow
-  backups/            # controller .cfg backup files
-
-omada-controller/     # RETIRED Omada controller setups
-  macos-software/     # bootstrap software controller (Colima + Docker), retired 2026-05-03
+omada-controller/     # all Omada-controller setups, active and retired
+  oc200/              # ACTIVE hardware controller (OC200 v1 @ .252)
+    README.md         # ops notes, beta-firmware caveat, backup/restore workflow
+    backups/          # controller .cfg backup files
+  macos-software/     # RETIRED bootstrap software controller (Colima + Docker), retired 2026-05-03
     README.md         # retirement note + recovery procedure
     PLAN.md           # original design doc (historical)
     docker-compose.yaml
@@ -28,7 +27,7 @@ mikrotik-router/      # MikroTik rb5009 router — IaC-managed
 
 - Omada controller is the hardware **OC200 v1** at
   `https://192.168.88.252/` (Omada Controller v6.2.10.17 via TP-Link beta
-  firmware — see `oc200/README.md` for the should-move-to-stable note).
+  firmware — see `omada-controller/oc200/README.md` for the should-move-to-stable note).
   Migrated from the software controller (now in
   `omada-controller/macos-software/`) on 2026-05-03; that dir is dormant
   recovery only and slated for removal by the scheduled audit on
@@ -51,12 +50,14 @@ router by hand — drift will get wiped on the next apply.
 
 - Tighten `/ip ssh password-authentication` from `yes` back to
   `yes-if-no-key` once we trust the apply flow.
-- **Tighten DNS upstream so the ISP can't see LAN lookups.** Currently
-  `use-peer-dns=yes` (default) on the WAN DHCP client, and the router
-  acts as resolver for the LAN with `allow-remote-requests=yes` — so
-  every LAN device's DNS query egresses to monkeybrains' DNS. Set
-  `/ip dhcp-client set [find interface=ether2] use-peer-dns=no` and
-  `/ip dns set servers=1.1.1.1,8.8.8.8` (or trusted equivalents).
+- **Optional: encrypted DNS (DoH) if path privacy matters.** Plain DNS
+  on UDP/53 is visible to every hop, not just the first. RouterOS 7
+  supports DoH via `/ip dns set use-doh-server=https://...`. Skip this
+  unless you're trying to defeat on-path observers — Monkeybrains is
+  fine as the plain upstream (small SF ISP, not in the data-mining
+  business), and switching to 1.1.1.1/8.8.8.8 is a sideways move at
+  best (Google is worse than Monkeybrains, Cloudflare already terminates
+  most of your TLS).
 - **Add IPv6 to all VLANs.** See
   [mikrotik-router/IPV6-PLAN.md](mikrotik-router/IPV6-PLAN.md) (ULA first,
   then WAN prefix delegation when available). Link-local recovery stays
@@ -65,6 +66,15 @@ router by hand — drift will get wiped on the next apply.
   `sfp-sfpplus1`, then implement per-SSID WAN selection per PLAN.md —
   plumtree → sonic primary, guest/iot → monkeybrains primary, failover
   either way. Separate pass via mangle marks + routing tables.
+- **Diagnose Wi-Fi bufferbloat / latency under load on the EAPs.** Sustained
+  ping spikes during saturating Wi-Fi traffic suggest queueing somewhere
+  in the AP→client path. First isolate: ping a LAN target from a wired
+  client (vs Wi-Fi) while running iperf3 to compare added latency, run
+  Waveform's bufferbloat test (<https://www.waveform.com/tools/bufferbloat>)
+  on each SSID, check whether the rb5009 has fq_codel/CAKE on egress and
+  whether WMM is on on each Omada SSID. Pin down whether the bloat is on
+  the WAN egress, the AP queue, or the client driver before reaching for
+  per-SSID rate limits or QoS toggles in the controller.
 
 ## Memory
 
