@@ -36,6 +36,9 @@ id_dsa
 # Docker auto-creates these on `compose up`.
 omada-controller/macos-software/omada/
 
+# Omada controller backups: large binary files, belong in backup storage not version control
+omada-controller/oc200/backups/*.cfg
+
 # MikroTik binary backups: sensitive (contain admin secrets),
 # restorable via netinstall, not useful for code review.
 mikrotik-router/snapshots/*.backup
