@@ -12,11 +12,16 @@ is a separate plan to write once both units are confirmed running OpenWrt.
 
 ## Status
 
-- RBR50 v1: **pending flash**
-- RBS50 v1: **pending flash**
+- RBR50 v1: **flashed 2026-05-07 to OpenWrt 25.12.3, on the bench**
+- RBS50 v1: **flashed 2026-05-07 to OpenWrt 25.12.3, on the bench**
 
-Update each line above to "flashed YYYY-MM-DD on OpenWrt <ver>" as the
-flashes complete.
+Both units boot to a clean OpenWrt LAN at `192.168.1.1`, three radios
+probed (`phy0/1/2`, ath10k for QCA9984 + both IPQ4019 internal radios),
+SSH key auth set up using the same `gkanapathy-mbpmx` admin key as the
+rb5009. The auto-generated `/etc/config/wireless` has three `wifi-device`
+blocks (radio0/1/2, all enabled) and three matching `wifi-iface` blocks
+all with `option disabled '1'` — so no SSIDs are broadcasting and no
+wifi netdevs exist yet. Configuring them is the integration phase.
 
 ## Layout
 
@@ -31,10 +36,10 @@ Filled in during the pre-flight step of [`FLASH.md`](FLASH.md). Sticker
 hardware-rev MUST read `RBR50` / `RBS50` (not `RBR50V2` / `RBS50V2` —
 V2 is a different SoC and would brick on the v1 image).
 
-| Role            | Sticker rev | Serial | LAN MAC | 2.4 GHz MAC | 5 GHz-low MAC | 5 GHz-high MAC | Notes |
-|-----------------|-------------|--------|---------|-------------|---------------|----------------|-------|
-| RBR50 router    |             |        |         |             |               |                |       |
-| RBS50 satellite |             |        |         |             |               |                |       |
+| Role            | Sticker rev | Serial | LAN MAC             | 2.4 GHz MAC         | 5 GHz-low MAC       | 5 GHz-high MAC      | Notes |
+|-----------------|-------------|--------|---------------------|---------------------|---------------------|---------------------|-------|
+| RBR50 router    | RBR50       | TBD    | `8c:3b:ad:ab:80:6f` | TBD                 | TBD                 | TBD                 | WAN MAC `8c:3b:ad:ab:80:70`. Radio MACs not captured before power-off — fill in next boot via `for p in /sys/class/ieee80211/phy*; do echo "$(basename $p): $(cat $p/macaddress)"; done`. Mapping is phy0 = QCA9984 5g-high, phy1 = 2.4g, phy2 = IPQ4019 5g-low. |
+| RBS50 satellite | RBS50       | TBD    | `8c:3b:ad:ab:99:88` | `8c:3b:ad:ab:99:88` | `8c:3b:ad:ab:99:8a` | `8c:3b:ad:ab:99:8b` | Has 4 LAN ports, no WAN port (satellite hardware). 2.4 GHz MAC matches LAN MAC, which is the IPQ4019's primary identity. |
 
 ## Post-flash facts
 
@@ -43,17 +48,19 @@ Filled in after each unit comes up on OpenWrt. Capture
 
 ### RBR50 router
 
-- OpenWrt version:
-- Kernel:
-- `br-lan` MAC:
-- First-boot date:
+- OpenWrt version: 25.12.3 (`r32912-6639b15f62`)
+- Kernel: Linux 6.12.85 SMP armv7l (built 2026-05-04)
+- `br-lan` MAC: `8c:3b:ad:ab:80:6f` (192.168.1.1/24, ULA `fdcd:131b:bf79::/60`)
+- Subtarget: `ipq40xx/generic` (the `mmc` subtarget that older docs reference no longer exists in 25.x — RBR50 is built under `generic`)
+- First-boot date: 2026-05-07
 
 ### RBS50 satellite
 
-- OpenWrt version:
-- Kernel:
-- `br-lan` MAC:
-- First-boot date:
+- OpenWrt version: 25.12.3 (`r32912-6639b15f62`)
+- Kernel: Linux 6.12.85 SMP armv7l (built 2026-05-04)
+- `br-lan` MAC: `8c:3b:ad:ab:99:88` (192.168.1.1/24, ULA `fdc4:4943:1cdc::/60`)
+- Subtarget: `ipq40xx/generic`
+- First-boot date: 2026-05-07
 
 ## Why OpenWrt
 

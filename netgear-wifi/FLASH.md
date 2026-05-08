@@ -18,15 +18,17 @@ fighting with the rb5009.
   brew install nmrpflash
   ```
 
-- A dedicated bench Ethernet path. Get one with a USB-Ethernet adapter
-  if needed. **Don't reuse `en7`** — that's the colima→rb5009 bridge
-  per [`omada-controller/macos-software/README.md`](../omada-controller/macos-software/README.md).
-  Plug in a separate adapter, then pick the new iface name fresh:
+- A dedicated bench Ethernet path on a USB-Ethernet adapter. Any
+  adapter is fine as long as the cable goes only from the Mac to the
+  Orbi (NMRP needs an isolated L2 segment, so this can't ride on the
+  same cable as the live plumtree LAN). The `en7` USB adapter that
+  used to bridge to the rb5009 / retired colima software controller is
+  fair game now that the macos-software path is dormant.
 
   ```fish
   ifconfig | grep -E '^en[0-9]+:'
-  # note the new entry that appeared after plugging in the adapter; use
-  # that name as <iface> below.
+  # if you plugged in a fresh adapter, note the newly appeared entry;
+  # otherwise the existing en7 is fine.
   ```
 
 - One Cat5e+ cable, plugged into the LAN port nearest the power button
@@ -34,14 +36,21 @@ fighting with the rb5009.
 
 ## 2. Image selection
 
-Latest OpenWrt stable as of mid-2026 is the 24.10.x branch. Confirm the
-exact current version against the index at
-<https://downloads.openwrt.org/releases/> at flash time.
+Confirm the current stable release at <https://downloads.openwrt.org/releases/>
+at flash time. As of 2026-05-07 the latest is **25.12.3**.
+
+Important deviations from earlier docs:
+
+- **Subtarget is `generic`, not `mmc`.** The `mmc` subtarget was folded
+  into `generic` before 25.x. Use `targets/ipq40xx/generic/`.
+- **Image filenames have no `-v1` suffix.** OpenWrt only supports the v1
+  hardware (RBR50/RBS50 v2 use a different SoC and live in a different
+  target entirely), so the filenames are unambiguously v1.
 
 Filenames (substitute `<ver>`):
 
-- `openwrt-<ver>-ipq40xx-mmc-netgear_orbi-rbr50-v1-squashfs-factory.img`
-- `openwrt-<ver>-ipq40xx-mmc-netgear_orbi-rbs50-v1-squashfs-factory.img`
+- `openwrt-<ver>-ipq40xx-generic-netgear_rbr50-squashfs-factory.img`
+- `openwrt-<ver>-ipq40xx-generic-netgear_rbs50-squashfs-factory.img`
 
 Download both into `~/Downloads/` (we don't store firmware in this
 repo). Verify against the published `sha256sums` file in the same
@@ -49,16 +58,18 @@ release directory:
 
 ```fish
 cd ~/Downloads
+curl -O https://downloads.openwrt.org/releases/<ver>/targets/ipq40xx/generic/openwrt-<ver>-ipq40xx-generic-netgear_rbr50-squashfs-factory.img
+curl -O https://downloads.openwrt.org/releases/<ver>/targets/ipq40xx/generic/openwrt-<ver>-ipq40xx-generic-netgear_rbs50-squashfs-factory.img
+curl -O https://downloads.openwrt.org/releases/<ver>/targets/ipq40xx/generic/sha256sums
 shasum -a 256 -c sha256sums --ignore-missing
 # expect "OK" lines for both factory images
 ```
 
-Once downloaded and verified, **paste the actual version + sha256s here**
-so this file documents what was used:
+### Last flash (record here for traceability)
 
-- OpenWrt version flashed: `<fill in>`
-- RBR50 v1 factory sha256: `<fill in>`
-- RBS50 v1 factory sha256: `<fill in>`
+- 2026-05-07: OpenWrt **25.12.3** (`r32912-6639b15f62`), kernel 6.12.85,
+  flashed to both RBR50 v1 and RBS50 v1. SHA256 verification for both
+  factory images: OK.
 
 ## 3. Pre-flight (per unit)
 
@@ -76,49 +87,82 @@ Do RBR50 first, then RBS50. Same procedure for each.
    Commit this before flashing — once stock firmware is gone, the
    stock-UI view of those MACs is gone with it.
 
-3. **Probe with `nmrpflash -L`.** Power-cycle the Orbi while the
-   bench cable is connected. Within ~5s:
-
-   ```fish
-   sudo nmrpflash -L -i <iface>
-   # expect a line like "<mac> <model-code>" with the model code
-   # matching RBR50 / RBS50.
-   ```
-
-   If nothing shows up, re-seat the cable, confirm `<iface>` is link-up
-   (`ifconfig <iface>`), and try again. The detection window is short.
+3. **There is no separate `nmrpflash` probe step.** `nmrpflash -L` only
+   lists the local Mac's interfaces — it does not detect devices on the
+   wire. Detection happens inside the real flash command (section 4):
+   `nmrpflash` waits for the Orbi's NMRP advertisement, prints the
+   detected MAC, then uploads the image. So treat section 4 itself as
+   the "is the Orbi reachable in NMRP mode" test, not a separate probe.
 
 ## 4. Flash
 
+Power off the Orbi first, start `nmrpflash` (it'll hang on
+`Advertising NMRP server on <iface>`), then power on the Orbi —
+`nmrpflash` needs to be listening before the Orbi enters its brief
+NMRP-advertise window during boot:
+
 ```fish
 sudo nmrpflash -i <iface> \
-  -f ~/Downloads/openwrt-<ver>-ipq40xx-mmc-netgear_orbi-rbr50-v1-squashfs-factory.img
+  -f ~/Downloads/openwrt-<ver>-ipq40xx-generic-netgear_rbr50-squashfs-factory.img
 ```
 
 (Substitute the `rbs50` filename for the satellite.)
 
-Power-cycle the Orbi when prompted. Expected timeline: ~60–90 s of
-upload + verify, then the unit reboots into OpenWrt. `nmrpflash` will
-exit 0 on success.
+Expected sequence:
+
+```
+Advertising NMRP server on <iface> ... -
+Received configuration request from <mac>.
+Sending configuration: 10.x.y.z/24.
+Received upload request: filename 'firmware'.
+Uploading openwrt-...-factory.img ...  OK (<bytes>)
+Waiting for remote to respond.
+Remote finished. Closing connection.
+Reboot your device now.
+```
+
+Power-cycle the Orbi when prompted. ~30–60 s later it boots into
+OpenWrt. `nmrpflash` exits 0 on success.
 
 After the reboot, OpenWrt comes up at `192.168.1.1` on the LAN port
 with no root password. **Set a root password immediately** — until
 you do, anyone on that Ethernet segment can ssh in as root with no
-auth.
+auth. Also clear any stale 192.168.1.1 host key from `known_hosts`
+first so the new fingerprint is picked up cleanly:
 
 ```fish
+ssh-keygen -R 192.168.1.1
 ssh root@192.168.1.1
 # in the OpenWrt shell:
 passwd
 exit
 ```
 
+Then install the same admin SSH pubkey we use on the rb5009 — OpenWrt
+runs dropbear, so authorized keys live at `/etc/dropbear/authorized_keys`,
+not the OpenSSH `~/.ssh/authorized_keys`:
+
+```fish
+cat ~/network-management/mikrotik-router/gkanapathy-mbpmx.pub | \
+  ssh root@192.168.1.1 'cat >> /etc/dropbear/authorized_keys && chmod 600 /etc/dropbear/authorized_keys'
+```
+
 Capture post-flash facts back into the README's "Post-flash facts"
 section for that unit:
 
 ```fish
-ssh root@192.168.1.1 'cat /etc/openwrt_release; uname -a; ip a; iw dev'
+ssh root@192.168.1.1 'cat /etc/openwrt_release; uname -a; ip a; iw phy | grep -E "^Wiphy|^\s+Band"'
+ssh root@192.168.1.1 'for p in /sys/class/ieee80211/phy*; do echo "$(basename $p): $(cat $p/macaddress)"; done'
 ```
+
+Note: `iw dev` returns nothing on a freshly-flashed unit because the
+auto-generated `/etc/config/wireless` ships with every `wifi-iface`
+having `option disabled '1'` — no enabled iface, no netdev. The phys
+themselves are alive (`iw phy` and `/sys/class/ieee80211/` confirm
+this); broadcasting an SSID is a config step in the integration phase.
+
+Note: `opkg` is gone in 25.x. The package manager is now `apk` (the
+Alpine one). Use `apk list -I` instead of `opkg list-installed`.
 
 Power off, label the unit "OpenWrt <ver> <YYYY-MM-DD>", set aside.
 Repeat section 3 + 4 for the second unit.

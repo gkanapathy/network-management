@@ -80,10 +80,10 @@ router by hand — drift will get wiped on the next apply.
   the WAN egress, the AP queue, or the client driver before reaching for
   per-SSID rate limits or QoS toggles in the controller.
 - **Deploy the OpenWrt'd Orbis** (RBR50 + RBS50 v1, see
-  [`netgear-wifi/`](netgear-wifi/)). Both are bench projects until flashed
-  and confirmed booting; once they are, decide wired-AP vs mesh-extender,
-  SSID/VLAN trunking, and whether they replace or augment the EAP770
-  mesh. Separate plan when ready.
+  [`netgear-wifi/`](netgear-wifi/)). Both flashed to OpenWrt 25.12.3
+  on 2026-05-07 and on the bench with key auth set up; next decisions
+  are wired-AP vs mesh-extender, SSID/VLAN trunking, and whether they
+  replace or augment the EAP770 mesh. Separate plan when ready.
 
 ## Memory
 
