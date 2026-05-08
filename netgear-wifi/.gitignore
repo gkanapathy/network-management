@@ -1,0 +1,5 @@
+# Firmware images: reproducible from downloads.openwrt.org with published
+# sha256s, no need to commit. This is defensive — pinned versions live in
+# FLASH.md, images live in ~/Downloads/.
+*.img
+*.bin
