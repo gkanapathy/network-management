@@ -21,6 +21,10 @@ mikrotik-router/      # MikroTik rb5009 router — IaC-managed
   gkanapathy-mbpmx.pub  # admin SSH pubkey, imported on apply
   snapshots/          # pre-apply backups + post-apply /export captures
   PLAN.md             # historical buildout plan; live intent is in config.rsc
+
+netgear-wifi/         # Orbi RBR50/RBS50 v1, being reflashed to OpenWrt — bench, not deployed
+  README.md           # status, hardware inventory, post-flash facts
+  FLASH.md            # nmrpflash runbook + debug.htm fallback
 ```
 
 ## What's already configured
@@ -75,6 +79,11 @@ router by hand — drift will get wiped on the next apply.
   whether WMM is on on each Omada SSID. Pin down whether the bloat is on
   the WAN egress, the AP queue, or the client driver before reaching for
   per-SSID rate limits or QoS toggles in the controller.
+- **Deploy the OpenWrt'd Orbis** (RBR50 + RBS50 v1, see
+  [`netgear-wifi/`](netgear-wifi/)). Both are bench projects until flashed
+  and confirmed booting; once they are, decide wired-AP vs mesh-extender,
+  SSID/VLAN trunking, and whether they replace or augment the EAP770
+  mesh. Separate plan when ready.
 
 ## Memory
 
