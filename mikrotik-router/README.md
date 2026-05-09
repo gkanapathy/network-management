@@ -18,13 +18,14 @@ and re-apply.
 
 ## Apply
 
-Only the `run-after-reset` target file persists across
-`/system reset-configuration no-defaults=yes` — everything else in
-`/file/` is wiped. Re-stage `gkanapathy-mbpmx.pub` (and any other
-sources `config.rsc` reads) on every apply, not just the first one.
-`keep-users=yes` separately preserves the admin user's password and any
-already-imported SSH keys, so a missing `.pub` at apply time isn't a
-lockout — but the apply log will show
+Files in `/file/` persist across `/system reset-configuration`, so we
+stage sources, then reset with `run-after-reset` to replay them on the
+blank router. **One catch:** `/user/ssh-keys/import` consumes its
+source — RouterOS deletes the `.pub` after reading it — so
+`gkanapathy-mbpmx.pub` must be re-staged on every apply, not just the
+first. `keep-users=yes` separately preserves the admin user's
+password and any already-imported SSH keys, so forgetting to re-stage
+isn't a lockout — but the apply log will show
 `gkanapathy-mbpmx.pub not present; existing keys (if any) retained`
 instead of the expected `ssh key imported` marker.
 
