@@ -236,10 +236,12 @@ add interface=ether2
 # /56), so accept-prefix-without-address=yes is required (probe 1, 2026-05-07).
 # pool-prefix-length=64 is the per-from-pool sub-allocation size, not an ISP
 # hint — MB delegates whatever it delegates regardless. add-default-route=yes
-# installs ::/0 via the upstream link-local on bind. use-peer-dns=no — the
-# router IS the resolver; clients learn it via RDNSS from /ipv6 nd.
+# installs ::/0 via the upstream link-local on bind. use-peer-dns inherits
+# the default `yes` (parallel to /ip dhcp-client); MB hands out
+# 2607:f598:0:1::3 as a v6 resolver, which lands in /ip dns dynamic-servers
+# alongside MB's v4 entries.
 /ipv6 dhcp-client
-add interface=ether2 request=address,prefix pool-name=mb-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=yes use-peer-dns=no
+add interface=ether2 request=address,prefix pool-name=mb-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=yes
 
 # --- IPv6 GUA per VLAN, from the Monkeybrains pool (Phase B-MB) ---
 # RouterOS 7.21.4 `from-pool=` semantics is prefix-only-to-interface: the

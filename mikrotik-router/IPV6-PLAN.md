@@ -207,7 +207,6 @@ pool-name=mb-pd
 pool-prefix-length=64
 accept-prefix-without-address=yes
 add-default-route=yes
-use-peer-dns=no
 ```
 
 Notes:
@@ -217,8 +216,13 @@ Notes:
   probe used `60` and Monkeybrains delegated `/56` regardless.
 - `accept-prefix-without-address=yes` matters: the probe showed
   Monkeybrains delegates prefix-only with no IA_NA address.
-- `use-peer-dns=no` because resolver is the router itself; clients
-  learn it via RDNSS from Phase A.
+- `use-peer-dns` inherits the RouterOS default `yes`, parallel to the
+  v4 client. Don't conflate two different things: the **router's**
+  upstream resolvers (this property) vs. the **LAN clients'** resolver
+  (RDNSS RA, Phase A). RouterOS's `/ip dns` is a forwarder; it needs
+  upstreams regardless of who its LAN clients are. MB hands out
+  `2607:f598:0:1::3` over DHCPv6 option 23, which lands in
+  `/ip dns dynamic-servers` next to the v4 entries.
 
 ### 2. Per-VLAN GUA from the pool
 
