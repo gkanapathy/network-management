@@ -255,17 +255,26 @@ VLAN — pool-derived `/64`s aren't human-stable across renewals.
 `add-default-route=yes` on the DHCPv6 client installs `::/0`. Verify
 with `/ipv6 route print` and a `ping6` to a global target.
 
-### Phase B-MB checklist
+### Phase B-MB checklist — applied 2026-05-09
 
 - [x] Probe 1 (`from-pool=` syntax) and probe 3 (renewal hygiene)
       confirmed on the live router (2026-05-07; see "Schema verification
       probe" below). Syntax correction applied to §2 above.
-- [ ] `/ipv6 dhcp-client print detail` shows `bound`, `mb-pd` populated.
-- [ ] `/ipv6 address print` shows per-VLAN pool-derived `/64` advertised
-      on each VLAN; LAN clients SLAAC GUAs in those `/64`s.
-- [ ] `::/0` present in `/ipv6 route print`.
-- [ ] `ping6 google.com` from each SSID succeeds, with source from the
-      `mb-pd` `/64`.
+- [x] `/ipv6 dhcp-client print detail` shows `status=bound`,
+      `dhcp-server-v6=fe80::f61e:57ff:fe09:94ab` (Monkeybrains upstream),
+      `prefix=2607:f598:d488:6100::/56`, lease ~3 days. `mb-pd` pool
+      populated with that /56.
+- [x] `/ipv6 address print` shows per-VLAN pool-derived /64 on each
+      VLAN, sequentially numbered out of the /56:
+      `:6100::/64` vlan88, `:6101::/64` vlan10, `:6102::/64` vlan20,
+      `:6103::/64` vlan30. All `advertise=yes`. Mac on plumtree SLAAC'd
+      both stable + temporary GUAs in `:6101::/64`.
+- [x] `::/0` present in `/ipv6 route print` via the upstream link-local
+      `fe80::f61e:57ff:fe09:94ab%ether2`.
+- [x] `ping6 2606:4700:4700::1111`, `ping6 google.com`, and HTTPS via
+      `curl -6 cloudflare.com` all succeed from the Mac on plumtree,
+      sourced from `2607:f598:d488:6101::/64`. RTT to Cloudflare
+      ~14–22 ms.
 
 ## Phase C — Sonic-day: v4 multi-WAN + v6 dual-GUA together
 

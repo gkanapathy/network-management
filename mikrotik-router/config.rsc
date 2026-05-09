@@ -231,6 +231,29 @@ add address=192.168.88.252 mac-address=24:2F:D0:02:07:5A server=mgmt-dhcp commen
 /ip dhcp-client
 add interface=ether2
 
+# --- WAN: DHCPv6-PD client on ether2 (Phase B-MB) ---
+# Asks for both IA_NA and IA_PD; Monkeybrains delegates prefix only (observed
+# /56), so accept-prefix-without-address=yes is required (probe 1, 2026-05-07).
+# pool-prefix-length=64 is the per-from-pool sub-allocation size, not an ISP
+# hint — MB delegates whatever it delegates regardless. add-default-route=yes
+# installs ::/0 via the upstream link-local on bind. use-peer-dns=no — the
+# router IS the resolver; clients learn it via RDNSS from /ipv6 nd.
+/ipv6 dhcp-client
+add interface=ether2 request=address,prefix pool-name=mb-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=yes use-peer-dns=no
+
+# --- IPv6 GUA per VLAN, from the Monkeybrains pool (Phase B-MB) ---
+# RouterOS 7.21.4 `from-pool=` semantics is prefix-only-to-interface: the
+# pool's /64 is assigned to the VLAN as a network address for RA emission;
+# the router gets NO host address from this entry (probe 1 confirmed several
+# `address=` and `eui-64=` variants are INVALID). Clients SLAAC their own
+# GUAs; the router itself stays reachable on the per-VLAN ULA ::1 (Phase A)
+# and link-local. Re-derives automatically on renewal (probe 3).
+/ipv6 address
+add from-pool=mb-pd interface=vlan88 advertise=yes
+add from-pool=mb-pd interface=vlan10 advertise=yes
+add from-pool=mb-pd interface=vlan20 advertise=yes
+add from-pool=mb-pd interface=vlan30 advertise=yes
+
 # --- DNS ---
 /ip dns
 set allow-remote-requests=yes

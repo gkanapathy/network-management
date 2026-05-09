@@ -18,9 +18,15 @@ and re-apply.
 
 ## Apply
 
-Files in `/file/` persist across `/system reset-configuration`, so we stage
-sources, then reset with `run-after-reset` to replay them on the blank
-router.
+Only the `run-after-reset` target file persists across
+`/system reset-configuration no-defaults=yes` — everything else in
+`/file/` is wiped. Re-stage `gkanapathy-mbpmx.pub` (and any other
+sources `config.rsc` reads) on every apply, not just the first one.
+`keep-users=yes` separately preserves the admin user's password and any
+already-imported SSH keys, so a missing `.pub` at apply time isn't a
+lockout — but the apply log will show
+`gkanapathy-mbpmx.pub not present; existing keys (if any) retained`
+instead of the expected `ssh key imported` marker.
 
 ```fish
 # 1. Pre-apply backup
@@ -69,8 +75,11 @@ ssh admin@192.168.88.1
 
 ### Apply log markers
 
-`config.rsc` logs `config.rsc: starting` / `... ssh key imported` / `... done`
-via `:log info`. After a reset, check that all three appear:
+`config.rsc` logs `config.rsc: starting` and `config.rsc: done` via
+`:log info` at the boundaries, plus either `ssh key imported` (if the
+`.pub` was staged) or a warning (`gkanapathy-mbpmx.pub not present;
+existing keys (if any) retained`) in between. After a reset, check
+that `starting` and `done` both appear:
 
 ```fish
 ssh admin@192.168.88.1 '/log/print where message~"config.rsc"'
