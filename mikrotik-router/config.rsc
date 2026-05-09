@@ -155,15 +155,23 @@ add interface=vlan10 advertise-dns=yes dns=fd7f:aee1:6ce0:10::1
 add interface=vlan20 advertise-dns=yes dns=fd7f:aee1:6ce0:20::1
 add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1
 
-# --- admin SSH key (early: regain key auth ASAP) ---
-# Idempotent: with `keep-users=yes` on reset, the previous key survives.
-# Clear before re-importing so we don't accumulate duplicates each apply.
-:if ([:len [/file/find name=gkanapathy-mbpmx.pub]] > 0) do={
-    /user/ssh-keys/remove [find user=admin]
-    /user/ssh-keys/import public-key-file=gkanapathy-mbpmx.pub user=admin
-    :log info "config.rsc: ssh key imported"
+# --- admin SSH key (cold-bootstrap only) ---
+# Routine reset-configuration with keep-users=yes preserves /user/ssh-keys
+# from the previous apply, so re-importing each time would just be churn —
+# and /user/ssh-keys/import consumes the .pub on success, forcing a re-scp
+# every apply. Skip when the key is already loaded; only import on cold
+# bootstrap (factory button reset / netinstall) where the user db starts
+# empty. To rotate the key: SSH in, /user/ssh-keys/remove [find user=admin],
+# scp the new .pub, then re-apply.
+:if ([:len [/user/ssh-keys/find user=admin]] > 0) do={
+    :log info "config.rsc: admin ssh key already present, skipping import"
 } else={
-    :log warning "config.rsc: gkanapathy-mbpmx.pub not present; existing keys (if any) retained"
+    :if ([:len [/file/find name=gkanapathy-mbpmx.pub]] > 0) do={
+        /user/ssh-keys/import public-key-file=gkanapathy-mbpmx.pub user=admin
+        :log info "config.rsc: ssh key imported (cold bootstrap)"
+    } else={
+        :log warning "config.rsc: no admin ssh key registered and gkanapathy-mbpmx.pub absent; password fallback only"
+    }
 }
 
 # SSH server hardening + behavior:

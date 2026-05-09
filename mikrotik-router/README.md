@@ -18,24 +18,21 @@ and re-apply.
 
 ## Apply
 
-Files in `/file/` persist across `/system reset-configuration`, so we
-stage sources, then reset with `run-after-reset` to replay them on the
-blank router. **One catch:** `/user/ssh-keys/import` consumes its
-source — RouterOS deletes the `.pub` after reading it — so
-`gkanapathy-mbpmx.pub` must be re-staged on every apply, not just the
-first. `keep-users=yes` separately preserves the admin user's
-password and any already-imported SSH keys, so forgetting to re-stage
-isn't a lockout — but the apply log will show
-`gkanapathy-mbpmx.pub not present; existing keys (if any) retained`
-instead of the expected `ssh key imported` marker.
+Routine apply only needs `config.rsc`. Files in `/file/` persist
+across `/system reset-configuration`, and `keep-users=yes` separately
+preserves admin's password and previously-imported SSH keys, so the
+script's key-import block is a no-op once the key is loaded. Cold
+bootstrap (button reset, netinstall) is a different path — see
+[Recovery](#recovery) — and is the only case that needs the `.pub`
+re-staged.
 
 ```fish
 # 1. Pre-apply backup
 ssh admin@192.168.88.1 '/system backup save name=before-apply dont-encrypt=yes'
 scp admin@192.168.88.1:before-apply.backup snapshots/$(date -u +%Y-%m-%dT%H%M%SZ)-before-apply.backup
 
-# 2. Stage sources
-scp config.rsc gkanapathy-mbpmx.pub admin@192.168.88.1:
+# 2. Stage source
+scp config.rsc admin@192.168.88.1:
 
 # 3. Pre-flight: parse-check the staged file. Fails fast on syntax errors
 #    (line-continuation glitches, unclosed quotes, etc.) WITHOUT mutating
@@ -77,10 +74,19 @@ ssh admin@192.168.88.1
 ### Apply log markers
 
 `config.rsc` logs `config.rsc: starting` and `config.rsc: done` via
-`:log info` at the boundaries, plus either `ssh key imported` (if the
-`.pub` was staged) or a warning (`gkanapathy-mbpmx.pub not present;
-existing keys (if any) retained`) in between. After a reset, check
-that `starting` and `done` both appear:
+`:log info` at the boundaries, plus one of three SSH-key messages
+in between:
+
+- `admin ssh key already present, skipping import` — routine apply,
+  `keep-users=yes` carried the key forward. Most common.
+- `ssh key imported (cold bootstrap)` — first apply after factory
+  wipe / netinstall; the staged `.pub` populated the empty user db.
+- `no admin ssh key registered and gkanapathy-mbpmx.pub absent;
+  password fallback only` — cold bootstrap without staging the `.pub`.
+  Recoverable but you'll need the device-label admin password to
+  log back in and add a key.
+
+After a reset, check that `starting` and `done` both appear:
 
 ```fish
 ssh admin@192.168.88.1 '/log/print where message~"config.rsc"'
@@ -103,14 +109,16 @@ ping6 -I en7 ff02::1                    # all-nodes mcast; router replies on eve
 ssh admin@fe80::6f4:1cff:fe51:bad8%en7  # bridge admin-mac 04:F4:1C:51:BA:D8 in EUI-64
 ```
 
-SSH listens on all addresses by default and key auth works as long as the
-script reached `ssh key imported`. This is the preferred recovery path —
-saves the button-reset + WebFig-set-password dance.
+SSH listens on all addresses by default and key auth works as long as
+admin's key is registered. This is the preferred recovery path — saves
+the button-reset + WebFig-set-password dance.
 
-### Hard factory reset (button)
+### Hard factory reset (button) — cold bootstrap
 
 Hold the reset button while powering on, release when the USR LED starts
-flashing (~5s). The router boots back to factory state.
+flashing (~5s). The router boots back to factory state with an empty
+user-db (no SSH keys), so unlike a routine `reset-configuration` apply,
+this path **does** need the `.pub` re-staged.
 
 **Important:** RouterOS 7.x ships with a unique per-device admin password
 printed on the label on the router itself. A button reset restores *that*
@@ -120,13 +128,17 @@ password — **not** empty. To regain SSH access:
 2. Log in once via Webfig at `http://192.168.88.1` (or SSH with that
    password) and reset the admin password to empty (or to whatever the
    apply flow expects).
-3. Then re-stage `config.rsc` + pubkey and re-apply.
+3. Re-stage **both** `config.rsc` and `gkanapathy-mbpmx.pub`
+   (`scp config.rsc gkanapathy-mbpmx.pub admin@192.168.88.1:`) and
+   apply. The script's import block runs because the user-db is empty;
+   it logs `ssh key imported (cold bootstrap)` and consumes the `.pub`
+   off `/file/` after import.
 
 This means a button reset always requires physical access to the router
 plus a manual login step. Prefer the IPv6 link-local recovery above when
 possible — it skips this dance.
 
-### Last resort: netinstall
+### Last resort: netinstall — cold bootstrap
 
 If the router doesn't respond to L2 link-local *and* a button reset hasn't
 helped:
@@ -136,7 +148,9 @@ helped:
 2. Use MikroTik's `Netinstall` tool against ether1 to reflash the OS, or
    restore the most recent `snapshots/*.backup` via `/system backup load`.
 
-The pre-apply backup pulled in step 1 of Apply is the immediate safety net.
+The pre-apply backup pulled in step 1 of Apply is the immediate safety
+net. Netinstall wipes both the OS and `/file/`, so the cold-bootstrap
+re-stage of `gkanapathy-mbpmx.pub` applies here too.
 
 ## Common pitfalls
 
