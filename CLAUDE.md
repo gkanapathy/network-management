@@ -53,7 +53,11 @@ router by hand — drift will get wiped on the next apply.
 ## What's next
 
 - Tighten `/ip ssh password-authentication` from `yes` back to
-  `yes-if-no-key` once we trust the apply flow.
+  `yes-if-no-key`. **Deferred** — apply flow is trusted (multiple
+  clean applies + the key-import refactor on 2026-05-09), but keep the
+  password fallback as a belt-and-suspenders safety net while there's
+  ongoing iterative work on the router. Revisit when router work
+  settles.
 - **Optional: encrypted DNS (DoH) if path privacy matters.** Plain DNS
   on UDP/53 is visible to every hop, not just the first. RouterOS 7
   supports DoH via `/ip dns set use-doh-server=https://...`. Skip this
