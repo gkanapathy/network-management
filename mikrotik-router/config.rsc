@@ -9,10 +9,10 @@
 #   sfp-sfpplus1  unconfigured (future sonic WAN)
 #
 # VLANs (all L3 lives on /interface vlan; never on bridge directly):
-#   88   mgmt      192.168.88.0/24    vlan88
-#   10   plumtree  192.168.10.0/24    vlan10
-#   20   guest     192.168.20.0/24    vlan20
-#   30   iot       192.168.30.0/24    vlan30
+#   88   mgmt      192.168.88.0/24    fd7f:aee1:6ce0:88::/64    vlan88
+#   10   plumtree  192.168.10.0/24    fd7f:aee1:6ce0:10::/64    vlan10
+#   20   guest     192.168.20.0/24    fd7f:aee1:6ce0:20::/64    vlan20
+#   30   iot       192.168.30.0/24    fd7f:aee1:6ce0:30::/64    vlan30
 #
 # Firewall policy (forward chain):
 #   - guest fully isolated from internal (all LAN VLANs blocked, WAN allowed)
@@ -129,6 +129,32 @@ add address=192.168.10.1/24 interface=vlan10 network=192.168.10.0
 add address=192.168.20.1/24 interface=vlan20 network=192.168.20.0
 add address=192.168.30.1/24 interface=vlan30 network=192.168.30.0
 
+# --- IPv6 ULA addresses (Phase A — no ISP dependency) ---
+# ULA /48: fd7f:aee1:6ce0::/48 — RFC 4193 random, generated 2026-05-08.
+# Subnet ID is VLAN-ID-as-hex (mnemonic only): :88::/64 = mgmt, :10::/64 =
+# plumtree, etc. The hex digits happen to mirror the decimal VLAN IDs;
+# they are not a numeric encoding (e.g., :10:: is hex 0x10 = dec 16).
+# advertise=yes makes the prefix appear in RAs (paired with /ipv6 nd below).
+/ipv6 address
+add address=fd7f:aee1:6ce0:88::1/64 interface=vlan88 advertise=yes
+add address=fd7f:aee1:6ce0:10::1/64 interface=vlan10 advertise=yes
+add address=fd7f:aee1:6ce0:20::1/64 interface=vlan20 advertise=yes
+add address=fd7f:aee1:6ce0:30::1/64 interface=vlan30 advertise=yes
+
+# --- IPv6 RA + RDNSS per VLAN (Phase A) ---
+# Hosts SLAAC from the advertised /64; RDNSS points at the router's per-VLAN
+# ULA ::1 so DNS lookups stay on-VLAN (no inter-VLAN firewall hop). Same role
+# as IPv4 dhcp-server-network "dns-server=<gateway>".
+# Default rule (interface=all) is disabled to avoid overlap with the explicit
+# per-VLAN rules below; we'll add explicit rules for any future interface
+# that needs RAs.
+/ipv6 nd
+set [find default=yes] disabled=yes
+add interface=vlan88 advertise-dns=yes dns=fd7f:aee1:6ce0:88::1
+add interface=vlan10 advertise-dns=yes dns=fd7f:aee1:6ce0:10::1
+add interface=vlan20 advertise-dns=yes dns=fd7f:aee1:6ce0:20::1
+add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1
+
 # --- admin SSH key (early: regain key auth ASAP) ---
 # Idempotent: with `keep-users=yes` on reset, the previous key survives.
 # Clear before re-importing so we don't accumulate duplicates each apply.
@@ -210,6 +236,10 @@ add interface=ether2
 set allow-remote-requests=yes
 /ip dns static
 add address=192.168.88.1 name=router.lan type=A
+# Single-name AAAA pinned to the mgmt-VLAN ULA. Stable across renewals because
+# ULAs don't depend on PD; per-VLAN GUA AAAAs are intentionally NOT published —
+# pool-derived /64s rotate on prefix renewal (see IPV6-PLAN.md).
+add address=fd7f:aee1:6ce0:88::1 name=router.lan type=AAAA
 
 # --- IPv4 firewall ---
 /ip firewall filter
@@ -238,7 +268,7 @@ add action=drop chain=forward in-interface=vlan30 out-interface=vlan20   comment
 /ip firewall nat
 add action=masquerade chain=srcnat ipsec-policy=out,none out-interface-list=WAN comment="masquerade WAN egress"
 
-# --- IPv6 firewall (defconf hardening; IPv6 not in active use) ---
+# --- IPv6 firewall (defconf hardening + Phase A inter-VLAN parity) ---
 /ipv6 firewall address-list
 add address=::/128            list=bad_ipv6 comment="unspecified"
 add address=::1/128           list=bad_ipv6 comment="loopback"
@@ -268,6 +298,16 @@ add action=drop   chain=forward comment="drop invalid" connection-state=invalid
 add action=drop   chain=forward comment="drop bad src ipv6" src-address-list=bad_ipv6
 add action=drop   chain=forward comment="drop bad dst ipv6" dst-address-list=bad_ipv6
 add action=drop   chain=forward comment="rfc4890 hop-limit=1" hop-limit=equal:1 protocol=icmpv6
+
+# Inter-VLAN policy parity with the IPv4 forward-chain drops above.
+# Placed BEFORE the broad ICMPv6 accept below so iot->plumtree ICMPv6 echo
+# (etc.) is dropped consistently with v4. Same-VLAN ND is link-local and
+# never traverses forward, so the ICMPv6 accept below still covers ND.
+add action=drop chain=forward in-interface=vlan20 out-interface-list=LAN comment="guest -> LAN: blocked"
+add action=drop chain=forward in-interface=vlan30 out-interface=vlan88 comment="iot -> mgmt: blocked"
+add action=drop chain=forward in-interface=vlan30 out-interface=vlan10 connection-state=new comment="iot -> plumtree: new conns blocked (returns OK)"
+add action=drop chain=forward in-interface=vlan30 out-interface=vlan20 comment="iot -> guest: blocked"
+
 add action=accept chain=forward comment="accept ICMPv6" protocol=icmpv6
 add action=accept chain=forward comment="accept HIP" protocol=139
 add action=accept chain=forward comment="accept IKE" dst-port=500,4500 protocol=udp

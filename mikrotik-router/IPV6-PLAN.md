@@ -163,18 +163,33 @@ In ULA-only mode there is no default IPv6 route; that is expected.
 Hosts still get ULA for internal traffic and for validating firewall
 rules.
 
-### Phase A checklist
+### Phase A checklist — applied 2026-05-09
 
-- [ ] Generated own ULA `/48`; documented final hex in `config.rsc`
-      comments.
-- [ ] `/ipv6 address` on `vlan88`, `vlan10`, `vlan20`, `vlan30`
+- [x] Generated own ULA `/48` (`fd7f:aee1:6ce0::/48`, RFC 4193 random);
+      documented in `config.rsc` topology comment + `/ipv6 address` block.
+- [x] `/ipv6 address` on `vlan88`, `vlan10`, `vlan20`, `vlan30`
       (`advertise=yes`).
-- [ ] `/ipv6 nd` per VLAN with RDNSS pointing at the per-VLAN ULA `::1`.
-- [ ] Four inter-VLAN drop rules in `/ipv6 firewall filter`, ahead of
-      the broad LAN drop.
-- [ ] `router.lan` AAAA static entry next to the existing A.
-- [ ] Smoke test: each SSID obtains an address in the expected `/64`;
-      ping6 to gateway succeeds; guest → plumtree gateway ping6 fails.
+- [x] `/ipv6 nd` per VLAN with RDNSS pointing at the per-VLAN ULA `::1`.
+      Default `interface=all` rule explicitly `disabled=yes` to avoid
+      overlap with the per-VLAN rules.
+- [x] Four inter-VLAN drop rules in `/ipv6 firewall filter`, placed
+      between the bad-ipv6/hop-limit drops and the broad ICMPv6 accept
+      (one position earlier than the broad LAN drop) so v6 ICMPv6 echo
+      cross-VLAN is dropped consistently with v4.
+- [x] `router.lan` AAAA static entry next to the existing A.
+- [x] Smoke test: Mac on plumtree SSID got SLAAC GUA in
+      `fd7f:aee1:6ce0:10::/64`; `ping6 fd7f:aee1:6ce0:88::1` succeeds
+      (~5 ms); `dig AAAA router.lan` returns the mgmt ULA; router
+      answers DNS at its ULA address.
+- [x] Cross-VLAN drop test (phone-driven, against a temporary HTTP
+      listener on this Mac's plumtree GUA): rule 7 (guest → LAN)
+      counted 25 packets / 2000 B, rule 9 (iot → plumtree new) counted
+      15 packets / 1200 B. Positive control via plumtree SSID loaded
+      sub-second. `/ipv6 neighbor` showed ~10 distinct devices already
+      SLAAC'd into the new vlan20/vlan30 prefixes within ~10 minutes
+      of the apply, confirming RA reach across the Omada APs.
+      Rules 8 (iot → mgmt) and 10 (iot → guest) not exercised but
+      schema-identical to rule 9.
 
 ## Phase B-MB — Monkeybrains PD + single GUA per VLAN
 

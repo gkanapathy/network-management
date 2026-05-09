@@ -62,10 +62,12 @@ router by hand — drift will get wiped on the next apply.
   business), and switching to 1.1.1.1/8.8.8.8 is a sideways move at
   best (Google is worse than Monkeybrains, Cloudflare already terminates
   most of your TLS).
-- **Add IPv6 to all VLANs.** See
-  [mikrotik-router/IPV6-PLAN.md](mikrotik-router/IPV6-PLAN.md) (ULA first,
-  then WAN prefix delegation when available). Link-local recovery stays
-  documented in `mikrotik-router/README.md` as long as the bridge is alive.
+- **IPv6 buildout.** Phase A done 2026-05-09 — ULA
+  `fd7f:aee1:6ce0::/48` per VLAN, RA + RDNSS on the gateway, IPv6
+  inter-VLAN firewall parity, AAAA for `router.lan`. Next: Phase B-MB
+  (Monkeybrains DHCPv6-PD → per-VLAN GUA) when ready, then Phase C on
+  Sonic-day. See [mikrotik-router/IPV6-PLAN.md](mikrotik-router/IPV6-PLAN.md).
+  Link-local recovery in `mikrotik-router/README.md` stays valid.
 - **Sonic WAN buildout** (when the line is up): mirror the ether2 setup on
   `sfp-sfpplus1`, then implement per-SSID WAN selection per PLAN.md —
   plumtree → sonic primary, guest/iot → monkeybrains primary, failover
