@@ -5,15 +5,10 @@ This directory holds configuration and notes for the user's home network.
 ## Layout
 
 ```
-omada-controller/     # all Omada-controller setups, active and retired
+omada-controller/     # all Omada-controller setups
   oc200/              # ACTIVE hardware controller (OC200 v1 @ .252)
     README.md         # ops notes, beta-firmware caveat, backup/restore workflow
     backups/          # controller .cfg backup files
-  macos-software/     # RETIRED bootstrap software controller (Colima + Docker), retired 2026-05-03
-    README.md         # retirement note + recovery procedure
-    PLAN.md           # original design doc (historical)
-    docker-compose.yaml
-    omada/            # gitignored runtime state; kept as recovery fallback
 
 mikrotik-router/      # MikroTik rb5009 router — IaC-managed
   README.md           # workflow: how to apply, recover, and the gotchas hit so far
@@ -32,10 +27,6 @@ netgear-wifi/         # Orbi RBR50/RBS50 v1, being reflashed to OpenWrt — benc
 - Omada controller is the hardware **OC200 v1** at
   `https://192.168.88.252/` (Omada Controller v6.2.10.17 via TP-Link beta
   firmware — see `omada-controller/oc200/README.md` for the should-move-to-stable note).
-  Migrated from the software controller (now in
-  `omada-controller/macos-software/`) on 2026-05-03; that dir is dormant
-  recovery only and slated for removal by the scheduled audit on
-  2026-05-17.
 - Two EAP770 APs adopted, mesh formed (root wired on ether1 trunk,
   satellite over 6 GHz channel 197 / 160 MHz).
 - Three SSIDs (`plumtree`, `plumtree-guest`, `plumtree-iot`) on VLANs

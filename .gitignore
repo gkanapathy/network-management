@@ -32,10 +32,6 @@ id_dsa
 # Claude Code: local-only per-machine settings
 .claude/settings.local.json
 
-# Software Omada controller runtime: DB, logs, work, backups.
-# Docker auto-creates these on `compose up`.
-omada-controller/macos-software/omada/
-
 # Omada controller backups: large binary files, belong in backup storage not version control
 omada-controller/oc200/backups/*.cfg
 
