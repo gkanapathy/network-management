@@ -232,7 +232,6 @@ add address=192.168.30.0/24 dns-server=192.168.30.1 gateway=192.168.30.1
 
 # --- DHCP reservations ---
 /ip dhcp-server lease
-add address=192.168.88.251 client-id=1:52:55:55:ca:b3:fb mac-address=52:55:55:CA:B3:FB server=mgmt-dhcp comment="omada controller (colima)"
 add address=192.168.88.252 mac-address=24:2F:D0:02:07:5A server=mgmt-dhcp comment="OC200"
 
 # --- WAN: DHCP client on ether2 (monkeybrains) ---

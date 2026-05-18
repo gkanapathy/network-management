@@ -4,9 +4,6 @@ Active Omada Controller for the home network. Hardware **OC200 v1**, web
 UI at `https://192.168.88.252/`. Adopted both EAP770s and runs the
 plumtree / plumtree-guest / plumtree-iot SSIDs on VLANs 10/20/30.
 
-Migrated here from the software controller in `../macos-software/` on
-2026-05-03 via Omada's Site Migration tool.
-
 ## ⚠ Beta firmware — should move to stable eventually
 
 Currently running TP-Link **beta** firmware
@@ -65,7 +62,4 @@ version.
 
 ## Recovery
 
-If the OC200 fails: the software controller in `../macos-software/` is
-preserved as a fallback. See its README for the revival procedure. (That
-fallback will be removed by a scheduled audit on 2026-05-17 if no
-rollback was needed in the meantime.)
+If the OC200 fails: the software controller setup is no longer maintained; you'd need to either swap to different hardware or rebuild the controller from a `omada-controller/oc200/backups/*.cfg` on a fresh deployment.
