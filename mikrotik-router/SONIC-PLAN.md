@@ -77,6 +77,61 @@ Schema verification probe). They produce facts the later stages encode.
 - Sonic-delivered v4 + v6 resolvers (recorded; no `config.rsc` impact —
   `use-peer-dns=yes` defaults already cover it).
 
+### Stage 0 probe results — 2026-05-21: completed
+
+All four probes plus one follow-up (`E`) ran in a single SSH session
+with `comment="probe-only-remove-after"` hygiene; revert verified
+(`/ip dhcp-client`, `/ipv6 dhcp-client`, and `/ip firewall mangle`
+empty of probe artifacts before exit).
+
+**Probe A — `/ipv6 dhcp-client default-route-distance` (and
+`default-route-tables`) both exist on RouterOS 7.21.4.** `print detail`
+of MB's bound entry showed `default-route-distance=1
+default-route-tables=default`. Same properties on `/ip dhcp-client`.
+Stage 1's manual-`::/0`-route fallback is no longer needed — use the
+property directly.
+
+**Probe B — counters tick on prerouting; fasttrack-bypass
+inconclusive.** A passthrough rule on
+`chain=prerouting in-interface=vlan10` counted 199 pkts / 142 KB
+over 25 s of ambient vlan10 traffic. The probe shape couldn't
+distinguish "new-conn only" from "all packets including fasttracked,"
+so the underlying question stays open. The `connection-mark=no-mark`
+defensive predicate on Stage 2's fasttrack rule stays — verify
+end-to-end during Stage 2.
+
+**Probe C — MB upstream `162.217.74.129` answers ICMP at ~7 ms (3/3,
+no loss).** Stage 2's `check-gateway=ping` against the literal IP is
+viable for MB. Sonic equivalent (`23.93.120.1`) untested until Stage 1
+apply binds the Sonic line in production; record at apply-time.
+
+**Probe D — Sonic delivers DHCP/IPoE with IA_NA + IA_PD /56.**
+
+| Stratum | Value |
+|---------|-------|
+| Delivery model | DHCP/IPoE (not PPPoE) |
+| v4 address | `23.93.121.192/21` (rotates on lease — never encode in `config.rsc`) |
+| v4 next-hop | `23.93.120.1` (Stage 2 `check-gateway=ping` target) |
+| v4 DNS (peer) | `50.0.1.1`, `50.0.2.2` (lands in `/ip dns dynamic-servers` via `use-peer-dns=yes`) |
+| v6 IA_NA address | `2001:5a8:601:2b::2:1ba2` (Sonic delivers an address as well as a prefix; MB is PD-only) |
+| v6 IA_PD prefix | `2001:5a8:6a4:d500::/56` (rotates — 256 /64s, same length as MB) |
+| v6 upstream LL | `fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1` |
+| Lease length | 6h (both v4 and v6) |
+
+Sonic's IA_NA-bearing behavior (vs MB's PD-only) means `sfp-sfpplus1`
+gets a literal v6 address from Sonic on bind.
+`accept-prefix-without-address=yes` is harmless either way — keep it
+so the same config shape handles both ISPs.
+
+**Probe E (follow-up) — `default-route-tables=` is single-value, NOT
+a comma-separated list.** Attempting
+`default-route-tables=main,probe-test` raised
+`input does not match any value of table-default`. So Stage 2's "rip
+out DHCP-installed routes, install manual routes per (table × WAN)"
+approach is still required — there is no shortcut via multi-table
+DHCP-installed routes. Probe also confirmed `default-route-tables=default`
+maps to the `main` table (the resulting route landed in `main`).
+
 ## Stage 1 — Sonic as passive secondary WAN
 
 **Goal:** Sonic binds v4 + v6, joins WAN interface-list, but does not
@@ -91,14 +146,10 @@ attract traffic in steady state. Everything still egresses MB.
   MB stays default (distance 1).
 - `/ipv6 dhcp-client` (after current MB entry at line 251):
   `add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd
-  pool-prefix-length=64 accept-prefix-without-address=yes` plus EITHER
-  - `default-route-distance=2` if Stage 0 probe A says the property
-    exists (preferred), OR
-  - `add-default-route=no` + a manual route entry below.
-- If manual route needed: `/ipv6 route add dst-address=::/0
-  gateway=<sonic-LL>%sfp-sfpplus1 distance=2` using the LL captured in
-  Stage 0 probe D. Document it inline; flag for renewal-stability review
-  (Sonic's LL is stable per RFC unless they swap hardware).
+  pool-prefix-length=64 accept-prefix-without-address=yes
+  default-route-distance=2`. Probe A confirmed `default-route-distance`
+  exists on `/ipv6 dhcp-client` in 7.21.4; no manual `::/0` route
+  needed.
 - `/interface list member`: `add interface=sfp-sfpplus1 list=WAN` after
   the existing ether2 entry at line 123. This brings Sonic under the
   existing input drop, forward "WAN-originated non-DSTNATed" drop, and
@@ -142,8 +193,10 @@ diff vs Stage 1 will yank routes Stage 1 relied on.
 - Both v4 DHCP clients: `add-default-route=no`. They still bind
   addresses and the gateway is still readable from `/ip dhcp-client`,
   we just install the routes by hand.
-- Both v6 DHCP clients: `add-default-route=no` (or its equivalent, see
-  Stage 1). Same reason.
+- Both v6 DHCP clients: `add-default-route=no`. Stage 1's
+  `default-route-distance=2` on the Sonic client gets replaced (the
+  client now installs no route at all); manual `::/0` entries below
+  cover all three tables.
 - `/ip route` — six `0.0.0.0/0` entries (3 tables × 2 WANs):
 
   | Table  | Gateway          | Distance | `check-gateway` |
