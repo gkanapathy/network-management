@@ -116,7 +116,10 @@ attract traffic in steady state. Everything still egresses MB.
   active, Sonic d=2 inactive.
 - `/ipv6 route print where dst-address=::/0` — same shape.
 - From plumtree: `curl -4 ipinfo.io` and `curl -6 ipinfo.io` both show
-  MB (`AS32261`, `2607:f598:d488::/47`).
+  MB — `AS32329` (org appears as `Another Corporate ISP, LLC`,
+  Monkeybrains' registered name), reverse-DNS
+  `*.public.monkeybrains.net`, v6 in `2607:f598:d488::/47`. The
+  hostname is the unambiguous signal.
 - Failover smoke test: unplug MB ether2. Within ~10s, Sonic v4 route
   activates and `curl -4 ipinfo.io` returns Sonic ASN. v6 traffic
   partially breaks because clients still hold only `mb-pd` GUAs — this
