@@ -62,13 +62,19 @@ router by hand — drift will get wiped on the next apply.
   parity, AAAA for `router.lan`. Phase B-MB: Monkeybrains DHCPv6-PD
   delegated `2607:f598:d488:6100::/56`, sub-allocated /64s per VLAN,
   ::/0 default route, full v6 internet via the MB GUA. Phase C
-  (Sonic-day dual-WAN routing + dual-GUA failover) is the remaining
-  v6 work. See [mikrotik-router/IPV6-PLAN.md](mikrotik-router/IPV6-PLAN.md).
+  (Sonic-day dual-WAN routing + dual-GUA failover) is folded into the
+  Sonic WAN buildout below — design model in
+  [mikrotik-router/IPV6-PLAN.md](mikrotik-router/IPV6-PLAN.md), staged
+  apply in [mikrotik-router/SONIC-PLAN.md](mikrotik-router/SONIC-PLAN.md).
   Link-local recovery in `mikrotik-router/README.md` stays valid.
-- **Sonic WAN buildout** (when the line is up): mirror the ether2 setup on
-  `sfp-sfpplus1`, then implement per-SSID WAN selection per PLAN.md —
-  plumtree → sonic primary, guest/iot → monkeybrains primary, failover
-  either way. Separate pass via mangle marks + routing tables.
+- **Sonic WAN buildout** — Sonic line is live on `sfp-sfpplus1`
+  (Stage 0 schema probes done 2026-05-21; Sonic delivers DHCP/IPoE with
+  IA_NA + IA_PD /56). Staged rollout in
+  [mikrotik-router/SONIC-PLAN.md](mikrotik-router/SONIC-PLAN.md):
+  Stage 1 passive Sonic + WAN list, Stage 2 v4 per-SSID PBR (plumtree
+  → sonic, guest/iot/mgmt → monkeybrains, failover both ways),
+  Stage 3 v6 dual-GUA + source-PBR, Stage 4 Netwatch RA-timer flip.
+  Supersedes the older PLAN.md per-SSID failover bullet.
 - **Diagnose Wi-Fi bufferbloat / latency under load on the EAPs.** Sustained
   ping spikes during saturating Wi-Fi traffic suggest queueing somewhere
   in the AP→client path. First isolate: ping a LAN target from a wired
