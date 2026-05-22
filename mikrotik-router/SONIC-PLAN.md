@@ -307,64 +307,33 @@ DHCP-installed routes that Stage 1 relied on.
   detection window. Restore: reverts to Sonic.
 - Pull MB ether2: guest/iot/mgmt fall through to Sonic. Restore: reverts.
 
-### Why source-based PBR, not mangle (post-mortem of v1–v4)
+### Why source-based PBR, not mangle
 
-The first design used `/ip firewall mangle` to mark connections by
-source VLAN, then mark routing by connection-mark. That broke
-plumtree v4 reproducibly across four apply attempts. Three distinct
-bugs we found:
+Four v1–v4 attempts used `/ip firewall mangle` to mark connections by
+source VLAN and mark routing by connection-mark. All broke plumtree
+v4 reproducibly. Two RouterOS 7.21.4 properties combined to make the
+mangle scheme unworkable:
 
-1. **`/routing table fib=yes` aborts the import** (v1 + v2; see above).
-   Independent of the PBR mechanism. Carries forward into v5.
-2. **`/ipv6 dhcp-client add-default-route` defaults to `no` on 7.21.4**
-   (Stage 1 v1). Independent of PBR. Carries forward into v5.
-3. **The mangle mark-routing PBR scheme itself broke return traffic.**
-   This is what made us abandon the mangle approach:
+- No longest-prefix-match across routing tables and no implicit
+  fallback from a custom table to `main`. Once a packet has
+  `routing-mark=X`, only table `X` is searched. A LAN-destined packet
+  from a marked source ends up egressing the WAN with a private-IP
+  destination.
+- Conntrack carries the routing-mark from the initial direction to
+  the reply direction. So even after scoping the mark to WAN-bound
+  traffic, reply packets get the mark applied via conntrack, route
+  via the custom table, and egress the WAN instead of the LAN client.
 
-   - **3a.** A plumtree-marked packet to a LAN dst (e.g., DNS to
-     `192.168.10.1` or inter-VLAN to `192.168.88.x`) had routing-mark
-     set, lookup happened in the marked table (sonic or mb), which only
-     contained `0.0.0.0/0` to a WAN — packet egressed the WAN with a
-     private-IP destination and was dropped upstream. Killed DNS from
-     plumtree → "internet broken" symptom. We added
-     `dst-address-list=!LAN-SUBNETS` to the mark-routing rule to keep
-     LAN dsts out of the marked path.
-   - **3b.** Reply traffic also ended up with the routing-mark applied
-     via conntrack (RouterOS appears to carry the mark forward from
-     the initial direction to the reply direction). The reply,
-     NAT-reversed to a LAN dst, looked up in the sonic table, matched
-     `0.0.0.0/0` → Sonic gateway, egressed back out Sonic with a
-     private-IP destination, and was dropped upstream. Mac never saw
-     replies. Conntrack showed `SEEN-REPLY orig-packets=N
-     repl-packets=N` for every ping that timed out at the Mac.
-   - **3c.** We tried adding LAN connected routes (`192.168.X.0/24 ->
-     vlanX`) to the sonic and mb tables on the theory that LPM
-     within the table would catch LAN dsts before the `0.0.0.0/0`
-     fallback. That *also* didn't work — `print detail` showed our
-     static routes had `scope=30 target-scope=10` (RouterOS default
-     for static) while main's connected routes had
-     `scope=10 target-scope=5`, and either the LPM ignored the
-     entry or returned it in a state that didn't actually forward.
-     We never figured out exactly why, because disabling pass-2
-     mark-routing entirely restored connectivity immediately, and
-     `/routing rule` source-based PBR sidesteps the whole question.
-
-`/routing rule` source-based PBR works because it **never sets a
-routing-mark**. The routing decision happens with no mark, against
-whichever table the rules select. Reply packets have a non-LAN source
-address (the remote endpoint), so they bypass the src rules and fall
-through to `main` — where the connected LAN routes have always
-worked. Validated 2026-05-22 via live probe on the router; plumtree
-ping to `1.1.1.1` went out Sonic with replies arriving back at the
-Mac in 9–65 ms, while LAN and inter-VLAN traffic stayed unaffected.
+Source-based `/routing rule` never sets a routing-mark. Reply packets
+have a non-LAN source so they bypass the src rules and fall through
+to `main` — where the connected LAN routes always worked. See
+[`README.md`](README.md) § Common pitfalls for the generalized
+"mangle mark-routing PBR is a trap" entry.
 
 ### Stage 2 results — 2026-05-22: completed (v5)
 
-Apply landed cleanly on the v5 design after four v1–v4 attempts.
-Steady-state and failover both validated. Snapshots:
-`snapshots/2026-05-22T063419Z-stage2v5-source.rsc` (source) and
-`snapshots/2026-05-22T063419Z-after-stage2v5.rsc` (post-apply
-`/export`).
+Apply landed cleanly on the v5 design after the four mangle-based
+attempts. Steady-state and failover both validated.
 
 | Test | Result |
 |------|--------|

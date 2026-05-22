@@ -88,197 +88,43 @@ static` would rot. Solution: publish only the ULA AAAA for `router.lan`
   RFC1918 nets so **link-local SSH recovery** in [`README.md`](README.md)
   stays valid.
 
-## Phase A — ULA + IPv6 firewall parity (no ISP dependency)
+## Phase A — ULA + IPv6 firewall parity (applied 2026-05-09)
 
-Fully verifiable today; doesn't wait on either ISP.
+ULA `/48` `fd7f:aee1:6ce0::/48` (RFC 4193 random), subnet ID =
+VLAN-ID-as-hex per VLAN (`:88::/64` = mgmt, `:10::/64` = plumtree,
+etc., a mnemonic — not a numeric encoding). Per-VLAN `/ipv6 address
+::1/64 advertise=yes`, `/ipv6 nd` with RDNSS pointing at the router's
+ULA `::1`. `/ipv6 firewall filter` inter-VLAN drops mirror the v4
+forward-chain drops. Single `router.lan` AAAA pinned to the mgmt
+ULA — no GUA AAAAs (see "Why pools, not literal prefixes" above).
 
-### 1. Choose a ULA /48
+Live state and per-rule rationale are in `config.rsc` comments;
+nothing in this section needs re-deriving.
 
-Per RFC 4193, pick a random **`fd00::/8` ULA `/48`** before
-implementation (do not copy documentation examples blindly). One way:
-roll 40 bits of randomness after `fd` and format as
-`fdXX:XXXX:XXXX::/48`.
+## Phase B-MB — Monkeybrains PD + single GUA per VLAN (applied 2026-05-09)
 
-The **subnet ID** (next 16 bits after the `/48`) follows a mnemonic so
-each VLAN maps to one `/64`:
+`/ipv6 dhcp-client` on `ether2` with `pool-name=mb-pd`, MB delegates
+`/56` (`2607:f598:d488:6100::/56`). Per-VLAN `/ipv6 address
+from-pool=mb-pd advertise=yes` assigns one `/64` per VLAN, sequential
+out of the `/56` (`:6100::/64` vlan88, `:6101::/64` vlan10, etc.).
+Clients SLAAC their own GUAs from the per-VLAN /64; the router itself
+has no GUA host address per VLAN (the `from-pool=` semantics on 7.21.4
+is *prefix-only-to-interface* — see Probe 1 below). Router-to-client
+reachability uses the per-VLAN ULA `::1` (Phase A) or link-local.
 
-| VLAN | Role     | Subnet (replace prefix with yours) | Router address |
-|------|----------|------------------------------------|----------------|
-| 88   | mgmt     | `fdXX:XXXX:XXXX:88::/64`           | `...::1/64`    |
-| 10   | plumtree | `fdXX:XXXX:XXXX:10::/64`           | `...::1/64`    |
-| 20   | guest    | `fdXX:XXXX:XXXX:20::/64`           | `...::1/64`    |
-| 30   | iot      | `fdXX:XXXX:XXXX:30::/64`           | `...::1/64`    |
+Key design choices captured here (still relevant for Stage 3):
 
-Implement with `/ipv6 address add address=<...::1/64> interface=vlanNN
-advertise=yes` on each VLAN sub-interface.
+- **No GUA AAAA per VLAN** in `/ip dns static` — pool-derived `/64`s
+  rotate on lease renewal and any AAAA would go stale. Only the ULA
+  AAAA for `router.lan` is published.
+- **`accept-prefix-without-address=yes`** is required because MB
+  delegates PD only, no IA_NA. Sonic differs (delivers both); keep the
+  property on both clients for shape parity.
+- **`pool-prefix-length=64`** is the *sub-allocation* size RouterOS
+  hands back per `from-pool=` request, not a hint to the ISP.
 
-### 2. Router advertisement (SLAAC + DNS)
-
-On each VLAN, configure `/ipv6 nd` so hosts autoconfigure and learn
-DNS:
-
-- Enable RA on `vlan88`, `vlan10`, `vlan20`, `vlan30`.
-- Set **RDNSS** to the router's ULA on that VLAN (`...::1`) so clients
-  use the router as resolver (same role as IPv4 DHCP "DNS = gateway").
-- If you use non-default MTU on WAN, set consistent **MTU** hints
-  where RouterOS exposes them.
-
-### 3. IPv6 firewall parity with IPv4
-
-Today's `/ipv6 firewall filter` does not encode inter-VLAN policy. Add
-**forward** rules mirroring the IPv4 inter-VLAN drops at
-`config.rsc:232–235`, ordered **before** the broad `drop everything not
-from LAN` rule at `config.rsc:277`:
-
-| Mirror of (IPv4)                 | New IPv6 rule                                                              |
-|----------------------------------|----------------------------------------------------------------------------|
-| `config.rsc:232` guest → LAN     | `in-interface=vlan20 out-interface-list=LAN action=drop`                   |
-| `config.rsc:233` iot → mgmt      | `in-interface=vlan30 out-interface=vlan88 action=drop`                     |
-| `config.rsc:234` iot → plumtree  | `in-interface=vlan30 out-interface=vlan10 connection-state=new action=drop` |
-| `config.rsc:235` iot → guest     | `in-interface=vlan30 out-interface=vlan20 action=drop`                     |
-
-The `connection-state=new` form on the iot → plumtree rule lets return
-traffic from plumtree-initiated flows back through, same as IPv4.
-
-**Keep untouched:**
-
-- ICMPv6 accept rules at `config.rsc:256` (input) and `config.rsc:271`
-  (forward) — Neighbor Discovery (RS/RA/NS/NA) depends on them.
-- The `bad_ipv6` address list and its forward drops at
-  `config.rsc:268–269`.
-
-**Do not** add `/ipv6 firewall nat` unless you explicitly adopt
-NPTv6/NAT66 — neither is needed in this design.
-
-### 4. Static DNS name for the router
-
-Mirror the existing `router.lan` A record at `config.rsc:212`: add
-`type=AAAA address=<mgmt-ULA::1>` in `/ip dns static`. Mgmt VLAN ULA is
-the natural choice for the single-name AAAA. **No GUA AAAAs** (see
-"Why pools, not literal prefixes" above).
-
-### 5. Default route expectation
-
-In ULA-only mode there is no default IPv6 route; that is expected.
-Hosts still get ULA for internal traffic and for validating firewall
-rules.
-
-### Phase A checklist — applied 2026-05-09
-
-- [x] Generated own ULA `/48` (`fd7f:aee1:6ce0::/48`, RFC 4193 random);
-      documented in `config.rsc` topology comment + `/ipv6 address` block.
-- [x] `/ipv6 address` on `vlan88`, `vlan10`, `vlan20`, `vlan30`
-      (`advertise=yes`).
-- [x] `/ipv6 nd` per VLAN with RDNSS pointing at the per-VLAN ULA `::1`.
-      Default `interface=all` rule explicitly `disabled=yes` to avoid
-      overlap with the per-VLAN rules.
-- [x] Four inter-VLAN drop rules in `/ipv6 firewall filter`, placed
-      between the bad-ipv6/hop-limit drops and the broad ICMPv6 accept
-      (one position earlier than the broad LAN drop) so v6 ICMPv6 echo
-      cross-VLAN is dropped consistently with v4.
-- [x] `router.lan` AAAA static entry next to the existing A.
-- [x] Smoke test: Mac on plumtree SSID got SLAAC GUA in
-      `fd7f:aee1:6ce0:10::/64`; `ping6 fd7f:aee1:6ce0:88::1` succeeds
-      (~5 ms); `dig AAAA router.lan` returns the mgmt ULA; router
-      answers DNS at its ULA address.
-- [x] Cross-VLAN drop test (phone-driven, against a temporary HTTP
-      listener on this Mac's plumtree GUA): rule 7 (guest → LAN)
-      counted 25 packets / 2000 B, rule 9 (iot → plumtree new) counted
-      15 packets / 1200 B. Positive control via plumtree SSID loaded
-      sub-second. `/ipv6 neighbor` showed ~10 distinct devices already
-      SLAAC'd into the new vlan20/vlan30 prefixes within ~10 minutes
-      of the apply, confirming RA reach across the Omada APs.
-      Rules 8 (iot → mgmt) and 10 (iot → guest) not exercised but
-      schema-identical to rule 9.
-
-## Phase B-MB — Monkeybrains PD + single GUA per VLAN
-
-Single WAN exists; "primary-only" is "the only one." No source-PBR
-needed yet — only one default v6 route. (Probes 1 and 3 already
-verified 2026-05-07 — see "Schema verification probe" below.)
-
-### 1. DHCPv6-PD client on `ether2`
-
-Add `/ipv6 dhcp-client` on `ether2`:
-
-```
-request=address,prefix
-pool-name=mb-pd
-pool-prefix-length=64
-accept-prefix-without-address=yes
-add-default-route=yes
-```
-
-Notes:
-
-- `pool-prefix-length=64` is the **sub-allocation size** RouterOS hands
-  back per `from-pool=` request, **not a hint to the ISP**. Earlier
-  probe used `60` and Monkeybrains delegated `/56` regardless.
-- `accept-prefix-without-address=yes` matters: the probe showed
-  Monkeybrains delegates prefix-only with no IA_NA address.
-- `use-peer-dns` inherits the RouterOS default `yes`, parallel to the
-  v4 client. Don't conflate two different things: the **router's**
-  upstream resolvers (this property) vs. the **LAN clients'** resolver
-  (RDNSS RA, Phase A). RouterOS's `/ip dns` is a forwarder; it needs
-  upstreams regardless of who its LAN clients are. MB hands out
-  `2607:f598:0:1::3` over DHCPv6 option 23, which lands in
-  `/ip dns dynamic-servers` next to the v4 entries.
-
-### 2. Per-VLAN GUA from the pool
-
-For each of `vlan88`, `vlan10`, `vlan20`, `vlan30`, add:
-
-```
-/ipv6 address add from-pool=mb-pd interface=vlanN advertise=yes
-```
-
-**No `address=` argument** — RouterOS 7.21.4's `from-pool=` semantics
-is **prefix-only-to-interface**: the pool's `/64` is assigned to the
-VLAN as a network address (`<pool-/64>::/64`) for RA emission. The
-router does **not** get a specific GUA host address per VLAN from this
-entry. Clients SLAAC their own GUAs; the router stays reachable via
-link-local (always advertised as the RA gateway) and the per-VLAN ULA
-`::1` from Phase A. Confirmed by probe 1 below — earlier forms tested
-and rejected:
-
-- `add address=::1 from-pool=mb-pd interface=vlanN` → INVALID
-  (literal `::1/64`, not combined with pool prefix).
-- `add address=::2 from-pool=mb-pd interface=vlanN` → same INVALID.
-- `add from-pool=mb-pd interface=vlanN eui-64=yes` → INVALID
-  (`::/64`, no IID computed).
-
-Re-derives automatically on renewal — see probe 3 below.
-
-### 3. DNS
-
-Continue to publish only the ULA AAAA from Phase A. No GUA AAAA per
-VLAN — pool-derived `/64`s aren't human-stable across renewals.
-
-### 4. Default IPv6 route
-
-`add-default-route=yes` on the DHCPv6 client installs `::/0`. Verify
-with `/ipv6 route print` and a `ping6` to a global target.
-
-### Phase B-MB checklist — applied 2026-05-09
-
-- [x] Probe 1 (`from-pool=` syntax) and probe 3 (renewal hygiene)
-      confirmed on the live router (2026-05-07; see "Schema verification
-      probe" below). Syntax correction applied to §2 above.
-- [x] `/ipv6 dhcp-client print detail` shows `status=bound`,
-      `dhcp-server-v6=fe80::f61e:57ff:fe09:94ab` (Monkeybrains upstream),
-      `prefix=2607:f598:d488:6100::/56`, lease ~3 days. `mb-pd` pool
-      populated with that /56.
-- [x] `/ipv6 address print` shows per-VLAN pool-derived /64 on each
-      VLAN, sequentially numbered out of the /56:
-      `:6100::/64` vlan88, `:6101::/64` vlan10, `:6102::/64` vlan20,
-      `:6103::/64` vlan30. All `advertise=yes`. Mac on plumtree SLAAC'd
-      both stable + temporary GUAs in `:6101::/64`.
-- [x] `::/0` present in `/ipv6 route print` via the upstream link-local
-      `fe80::f61e:57ff:fe09:94ab%ether2`.
-- [x] `ping6 2606:4700:4700::1111`, `ping6 google.com`, and HTTPS via
-      `curl -6 cloudflare.com` all succeed from the Mac on plumtree,
-      sourced from `2607:f598:d488:6101::/64`. RTT to Cloudflare
-      ~14–22 ms.
+Live config is in `config.rsc`'s `/ipv6 dhcp-client` and `/ipv6
+address` blocks; nothing in this section needs re-applying.
 
 ## Phase C — Sonic-day: v4 multi-WAN + v6 dual-GUA together
 
@@ -310,8 +156,9 @@ verification probe" below.)
   primary-WAN failure fails through to secondary.
 - NAT (`masquerade`) on each WAN's egress, shape unchanged from
   `config.rsc:238–239`.
-- This is the eventual home of the deferred "per-SSID WAN failover
-  routing" item from [`PLAN.md`](PLAN.md).
+- Applied 2026-05-22 as Sonic Stage 2 via source-based PBR
+  (`/routing rule`), not mangle mark-routing. See
+  [`SONIC-PLAN.md`](SONIC-PLAN.md) Stage 2 for the live shape.
 
 ### v6 layer — preferred/allowed via RA timers
 
@@ -465,75 +312,14 @@ SSIDs already map to VLANs 10/20/30; APs bridge IPv6 like IPv4. If the
 controller exposes per-SSID IPv6 toggles, leave them consistent with
 "RA from the gateway" unless you have a reason to override.
 
-## Where to edit `config.rsc` (per phase, future applies)
+## Phase C apply staging
 
-Each phase lands as its own apply via the wipe-and-replay flow in
-[`README.md`](README.md): stage file, `:parse` pre-flight, reset +
-import, confirm `config.rsc: done` in the log.
-
-**Phase A insertion order:**
-
-1. After IPv4 `/ip address` block (`config.rsc:126–130`): `/ipv6
-   address` ULA `::1/64` per VLAN.
-2. Near `/ip dns static` (`config.rsc:211–212`): AAAA for `router.lan`.
-3. After `/ipv6 firewall filter` defconf rules (`config.rsc:253–277`):
-   the four inter-VLAN drops, ahead of the broad LAN drop.
-4. New `/ipv6 nd` block, after addresses exist on each VLAN.
-
-**Phase B-MB additions:**
-
-5. After WAN `/ip dhcp-client` block (`config.rsc:204–206`): `/ipv6
-   dhcp-client` for `ether2` with `pool-name=mb-pd`.
-6. Add a parallel `/ipv6 address from-pool=mb-pd advertise=yes` entry
-   per VLAN alongside (not replacing) the Phase A ULA `::1/64`. **No
-   `address=` argument** — see Phase B-MB §2 and probe 1 above.
-
-**Phase C additions:**
-
-7. `/ipv6 dhcp-client` for `sfp-sfpplus1` with `pool-name=sonic-pd`.
-8. Second per-VLAN `/ipv6 address from-pool=sonic-pd` entry.
-9. Routing tables (`/routing table`), Netwatch (`/tool netwatch`),
-   mangle marks (`/ip firewall mangle`, `/ipv6 firewall mangle`),
-   `/ipv6 nd prefix` per-prefix `preferred-lifetime` overrides, and
-   the up/down scripts (`/system script`).
-
-## Verification (per phase)
-
-**Phase A:**
-
-```
-/ipv6 address print
-/ipv6 nd print
-/ipv6 firewall filter print
-```
-
-From a vlan10 client: `ping6 fdXX:XXXX:XXXX:88::1` succeeds. From a
-vlan20 client: `ping6 fdXX:XXXX:XXXX:30::<iot>` fails (guest → iot
-blocked).
-
-**Phase B-MB:**
-
-```
-/ipv6 dhcp-client print detail
-/ipv6 pool print
-/ipv6 address print
-/ipv6 route print
-```
-
-From any SSID: `ping6 2606:4700:4700::1111` and `ping6 google.com`
-succeed; `ip -6 addr` on the client shows a GUA in the `mb-pd` `/64`.
-
-**Phase C:**
-
-- v4: `traceroute` from a vlan10 client to `8.8.8.8` shows Sonic as
-  first ISP hop; from vlan20/30/88 shows Monkeybrains. Pull Sonic
-  cable: vlan10 traffic reroutes via Monkeybrains within Netwatch's
-  probe window.
-- v6: `ip -6 addr` on a client shows three addresses on the VLAN
-  (ULA + `mb-pd` GUA + `sonic-pd` GUA), one of the GUAs marked
-  deprecated. New `ping6` flows source from the preferred prefix.
-  Pull primary WAN: RA timers flip within one RA interval; new flows
-  source from the surviving prefix.
+Phase C (Sonic-day v6 + v4 multi-WAN) is staged as
+[`SONIC-PLAN.md`](SONIC-PLAN.md) Stages 0–4. The IPv4 piece (Stage 2
+source-based PBR) is already applied; v6 dual-GUA + Netwatch arrive in
+Stages 3 and 4. Where IPV6-PLAN.md and SONIC-PLAN.md differ on Phase C
+specifics, SONIC-PLAN.md wins — it's been refined by running into the
+actual gotchas.
 
 ## Risks
 
@@ -545,9 +331,9 @@ succeed; `ip -6 addr` on the client shows a GUA in the `mb-pd` `/64`.
   preference on the next RA. Tighten `min-rtr-adv-interval`
   (15–30s) on the affected VLANs for faster recovery; don't go too
   low or RA traffic itself becomes a noise source.
-- **Phase C bundles a lot.** v4 multi-WAN routing is a significant
-  design in its own right (deferred by `PLAN.md`). The optional
-  C-v4/C-v6 split above mitigates.
+- **Phase C bundles a lot.** v4 multi-WAN was the first half (now
+  Sonic Stage 2, applied 2026-05-22). v6 dual-GUA + Netwatch are
+  Stages 3 + 4.
 - **Scripted state.** The Netwatch RA-timer flip is the most stateful
   bit in the design. Belt-and-suspenders: also include a periodic
   reconciliation script that ensures timers match current WAN state

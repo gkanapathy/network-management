@@ -10,11 +10,12 @@ and re-apply.
 - `config.rsc` — target configuration. The whole router's intent.
 - `gkanapathy-mbpmx.pub` — admin SSH public key. Uploaded alongside
   `config.rsc` and imported by the script.
-- `snapshots/` — `/export hide-sensitive` captures and `/system backup`
-  files. Reference + rollback.
-- `PLAN.md` — original buildout plan (VLANs/firewall/WAN). Historical /
-  context; the live intent lives in `config.rsc`.
-- `IPV6-PLAN.md` — phased IPv6 plan (ULA, prefix delegation, firewall parity).
+- `snapshots/` — single pre-Sonic baseline `.rsc` for deep
+  cold-bootstrap fallback. Per-apply backups are taken locally
+  but gitignored (`*.backup`).
+- `IPV6-PLAN.md` — v6 design reference (Phases A + B-MB applied;
+  Phase C is the Sonic Stage 3 work).
+- `SONIC-PLAN.md` — staged Sonic WAN buildout (Stages 0–2 applied).
 
 ## Apply
 
