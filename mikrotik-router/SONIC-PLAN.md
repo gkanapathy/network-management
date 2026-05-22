@@ -21,7 +21,7 @@ and each independently testable and revert-safe.
 flowchart TD
     S0["Stage 0 (pre-apply): live-router schema probes<br/>verify ipv6 dhcp-client default-route-distance,<br/>routing-mark+connection-mark interaction with fasttrack,<br/>check-gateway behavior. Capture Sonic PD length + gateway facts."]
     S1["Stage 1: Sonic as PASSIVE secondary<br/>+ ipv6 dhcp-client sonic-pd, +ip dhcp-client sfp-sfpplus1<br/>+sfp-sfpplus1 to WAN list<br/>NO per-VLAN PBR, NO sonic-pd /64s on VLANs"]
-    S2["Stage 2: v4 per-SSID PBR<br/>+routing tables mb, sonic<br/>+manual 0.0.0.0/0 routes per table (distance 1 & 2)<br/>+manual ::/0 routes per table<br/>+mangle (connection-mark, routing-mark)<br/>+fasttrack predicate connection-mark=no-mark<br/>Both DHCP clients switch to add-default-route=no"]
+    S2["Stage 2: v4 per-SSID PBR (source-based)<br/>+routing tables mb, sonic<br/>+manual 0.0.0.0/0 routes per table (distance 1 & 2)<br/>+manual ::/0 routes per table<br/>+/routing rule (dst-LAN priority + per-VLAN src)<br/>Both DHCP clients switch to add-default-route=no"]
     S3["Stage 3: v6 dual-GUA + source-PBR<br/>+ipv6 address from-pool=sonic-pd per VLAN<br/>+ipv6 nd prefix preferred-lifetime overrides<br/>+ipv6 firewall mangle (src-address PBR)"]
     S4["Stage 4: Netwatch + RA-timer flip<br/>+netwatch mb-probe, sonic-probe (per-table)<br/>+scripts mb-up/down, sonic-up/down<br/>+scheduler reconcile from route state<br/>tighten min-rtr-adv-interval"]
     Verify1["Verify: MB still primary on all SSIDs.<br/>Pull MB: Sonic active. v6 degraded (no sonic-pd GUAs yet) — expected."]
@@ -42,7 +42,8 @@ points reused below — don't restate the model, only deltas.
 
 - Two routing tables (`mb`, `sonic`); each carries both `::/0` and
   `0.0.0.0/0` with local WAN d=1, other WAN d=2.
-- v4 PBR: per-VLAN `in-interface` → `mark-connection` → `mark-routing`.
+- v4 PBR: per-VLAN source via `/routing rule` (with a dst=LAN-priority
+  rule first, so reply + inter-VLAN traffic always uses `main`).
 - v6 dual-GUA: every VLAN gets a `/64` from each pool; RFC 6724 source
   selection biased by per-prefix `preferred-lifetime` overrides.
 - v6 PBR: `mark-connection` on `src-address` matching pool prefixes
@@ -214,26 +215,39 @@ ether2 disabled=yes/no`, plus a physical cable-pull cycle for parity:
   lease-cache likely answers a fresh DISCOVER immediately. Same v6
   BCP38 gap during the outage window.
 
-## Stage 2 — v4 per-SSID PBR
+## Stage 2 — v4 per-SSID PBR (source-based, via `/routing rule`)
 
 **Goal:** plumtree v4 egresses Sonic; guest/iot/mgmt v4 egress MB.
 Symmetric failover via `check-gateway` + route distance.
 
+**Design: source-based PBR.** This stage went through four mangle-based
+revisions (v1–v4) that all broke plumtree v4 connectivity in
+reproducible ways. The mangle approach got abandoned; v5 uses
+`/routing rule` matching on source address instead. See post-mortem
+below for what went wrong.
+
 This stage is **not purely additive**: both DHCP clients (v4 + v6, both
 WANs) switch to `add-default-route=no`, and *all* defaults get installed
-manually. The wipe-and-replay flow keeps the live transition clean; the
-diff vs Stage 1 will yank routes Stage 1 relied on.
+manually so each routing table is complete. The wipe-and-replay flow
+keeps the live transition clean; the diff vs Stage 1 will yank the
+DHCP-installed routes that Stage 1 relied on.
 
 ### `config.rsc` changes
 
-- `/routing table`: `add name=mb fib=yes`, `add name=sonic fib=yes`.
+- `/routing table`: `add name=mb fib`, `add name=sonic fib`. (NOT
+  `fib=yes` — RouterOS 7.21.4 treats `fib` as a flag, not a boolean
+  property; the assignment form parses as "expected end of command",
+  aborts the import script, and skips the rest of `config.rsc` —
+  including `vlan-filtering=yes` at the bottom, which locks plumtree
+  out from the router. Discovered the hard way on the first two
+  Stage 2 apply attempts, 2026-05-21.)
 - Both v4 DHCP clients: `add-default-route=no`. They still bind
-  addresses and the gateway is still readable from `/ip dhcp-client`,
-  we just install the routes by hand.
+  addresses and the gateway is readable from `/ip dhcp-client`; we
+  install all defaults manually so each table can carry both ISPs.
 - Both v6 DHCP clients: `add-default-route=no`. Stage 1's
   `default-route-distance=2` on the Sonic client gets replaced (the
-  client now installs no route at all); manual `::/0` entries below
-  cover all three tables.
+  client installs no route at all); manual `::/0` entries below cover
+  all three tables.
 - `/ip route` — six `0.0.0.0/0` entries (3 tables × 2 WANs):
 
   | Table  | Gateway          | Distance | `check-gateway` |
@@ -248,61 +262,101 @@ diff vs Stage 1 will yank routes Stage 1 relied on.
   Gateway is the literal next-hop IP captured in Stage 0/1, not the
   interface — `check-gateway` against a DHCP-bound interface pings the
   resolved DHCP server, which the ISP may not answer; pinging the
-  literal next-hop is more reliable. Fall back to
-  `check-gateway=arp` only if the upstream silently drops ICMP and Stage
-  0 probe C documented that.
+  literal next-hop is more reliable.
 
 - `/ipv6 route` — same 6-row shape with `dst-address=::/0`, gateways as
   the upstream link-locals (`fe80::…%ether2`, `fe80::…%sfp-sfpplus1`).
-  RouterOS v6 routes accept `check-gateway` on 7.x; use `ping` mirroring
-  v4. Verify in Stage 0 probe C.
+  RouterOS v6 routes accept `check-gateway` on 7.x; use `ping`
+  mirroring v4.
 
-- `/ip firewall mangle` (prerouting, two-pass — pattern keeps return
-  traffic on a marked conn correctly routed):
+- `/routing rule` — five rules, processed in order:
 
   ```
-  # pass 1 — mark connection on first packet of new flows from a VLAN
-  add chain=prerouting in-interface=vlan10 connection-state=new \
-      action=mark-connection new-connection-mark=plumtree-conn passthrough=yes
-  add chain=prerouting in-interface=vlan20 connection-state=new \
-      action=mark-connection new-connection-mark=mb-conn       passthrough=yes
-  add chain=prerouting in-interface=vlan30 connection-state=new \
-      action=mark-connection new-connection-mark=mb-conn       passthrough=yes
-  add chain=prerouting in-interface=vlan88 connection-state=new \
-      action=mark-connection new-connection-mark=mb-conn       passthrough=yes
-  # pass 2 — route-mark from connection-mark; no in-interface so this fires
-  # on return-WAN traffic too. passthrough=no avoids further mangle work.
-  add chain=prerouting connection-mark=plumtree-conn \
-      action=mark-routing new-routing-mark=sonic passthrough=no
-  add chain=prerouting connection-mark=mb-conn \
-      action=mark-routing new-routing-mark=mb    passthrough=no
+  add dst-address=192.168.0.0/16  action=lookup table=main  comment="LAN dsts -> main"
+  add src-address=192.168.10.0/24 action=lookup table=sonic comment="plumtree -> sonic"
+  add src-address=192.168.20.0/24 action=lookup table=mb    comment="guest -> mb"
+  add src-address=192.168.30.0/24 action=lookup table=mb    comment="iot -> mb"
+  add src-address=192.168.88.0/24 action=lookup table=mb    comment="mgmt -> mb"
   ```
 
-- **Fasttrack exclusion.** Marked conns must skip fasttrack
-  (fasttrack's per-packet shortcut can desync routing-mark state on
-  marked flows). Replace the existing fasttrack rule at
-  `config.rsc:288`:
+  Rule 1 catches reply traffic (NAT-reversed dst = LAN client) AND
+  inter-VLAN traffic BEFORE the per-VLAN src rules fire, so those
+  always route via `main`'s connected LAN routes. Rules 2–5 steer
+  outbound LAN-to-WAN traffic to the right table by source subnet.
+  Reply packets don't match the src rules because their src is the
+  remote endpoint (not a LAN address). Router-originated traffic
+  takes its source from the egress interface (typically a WAN IP),
+  so it also doesn't match src rules and falls through to main.
 
-  - Before: `action=fasttrack-connection chain=forward
-    connection-state=established,related`
-  - After: same + `connection-mark=no-mark`.
-
-  Same predicate added to the v6 fasttrack rule at line 327.
-
-- `/ip firewall nat`: existing masquerade
-  (`out-interface-list=WAN`) at line 301 needs no change; it NATs out
-  whichever WAN a packet actually exits.
+- `/ip firewall nat`: existing masquerade (`out-interface-list=WAN`)
+  needs no change; it NATs out whichever WAN a packet actually exits.
+- **No mangle changes. No address-list. No fasttrack predicate
+  changes.** The mangle/conntrack PBR pattern from v1–v4 is dropped
+  entirely — see post-mortem below.
 
 ### Verify
 
-- `curl -4 ipinfo.io` from plumtree → Sonic ASN; from
-  guest/iot/mgmt host → MB ASN.
+- `curl -4 ipinfo.io` from plumtree → Sonic ASN (`AS46375`); from
+  guest/iot/mgmt host → MB ASN (`AS32329`).
 - `traceroute -4` from each SSID confirms first ISP hop.
+- `ping 192.168.10.1` from plumtree (LAN-to-router) succeeds — rule 1
+  catches it.
+- `ping 192.168.88.1` from plumtree (inter-VLAN) succeeds — rule 1
+  catches it.
 - Pull Sonic SFP: plumtree falls through to MB within `check-gateway`'s
   detection window. Restore: reverts to Sonic.
 - Pull MB ether2: guest/iot/mgmt fall through to Sonic. Restore: reverts.
-- `/ip firewall mangle print stats` — counters show pass-1 and pass-2
-  rules matching the expected per-VLAN traffic.
+
+### Why source-based PBR, not mangle (post-mortem of v1–v4)
+
+The first design used `/ip firewall mangle` to mark connections by
+source VLAN, then mark routing by connection-mark. That broke
+plumtree v4 reproducibly across four apply attempts. Three distinct
+bugs we found:
+
+1. **`/routing table fib=yes` aborts the import** (v1 + v2; see above).
+   Independent of the PBR mechanism. Carries forward into v5.
+2. **`/ipv6 dhcp-client add-default-route` defaults to `no` on 7.21.4**
+   (Stage 1 v1). Independent of PBR. Carries forward into v5.
+3. **The mangle mark-routing PBR scheme itself broke return traffic.**
+   This is what made us abandon the mangle approach:
+
+   - **3a.** A plumtree-marked packet to a LAN dst (e.g., DNS to
+     `192.168.10.1` or inter-VLAN to `192.168.88.x`) had routing-mark
+     set, lookup happened in the marked table (sonic or mb), which only
+     contained `0.0.0.0/0` to a WAN — packet egressed the WAN with a
+     private-IP destination and was dropped upstream. Killed DNS from
+     plumtree → "internet broken" symptom. We added
+     `dst-address-list=!LAN-SUBNETS` to the mark-routing rule to keep
+     LAN dsts out of the marked path.
+   - **3b.** Reply traffic also ended up with the routing-mark applied
+     via conntrack (RouterOS appears to carry the mark forward from
+     the initial direction to the reply direction). The reply,
+     NAT-reversed to a LAN dst, looked up in the sonic table, matched
+     `0.0.0.0/0` → Sonic gateway, egressed back out Sonic with a
+     private-IP destination, and was dropped upstream. Mac never saw
+     replies. Conntrack showed `SEEN-REPLY orig-packets=N
+     repl-packets=N` for every ping that timed out at the Mac.
+   - **3c.** We tried adding LAN connected routes (`192.168.X.0/24 ->
+     vlanX`) to the sonic and mb tables on the theory that LPM
+     within the table would catch LAN dsts before the `0.0.0.0/0`
+     fallback. That *also* didn't work — `print detail` showed our
+     static routes had `scope=30 target-scope=10` (RouterOS default
+     for static) while main's connected routes had
+     `scope=10 target-scope=5`, and either the LPM ignored the
+     entry or returned it in a state that didn't actually forward.
+     We never figured out exactly why, because disabling pass-2
+     mark-routing entirely restored connectivity immediately, and
+     `/routing rule` source-based PBR sidesteps the whole question.
+
+`/routing rule` source-based PBR works because it **never sets a
+routing-mark**. The routing decision happens with no mark, against
+whichever table the rules select. Reply packets have a non-LAN source
+address (the remote endpoint), so they bypass the src rules and fall
+through to `main` — where the connected LAN routes have always
+worked. Validated 2026-05-22 via live probe on the router; plumtree
+ping to `1.1.1.1` went out Sonic with replies arriving back at the
+Mac in 9–65 ms, while LAN and inter-VLAN traffic stayed unaffected.
 
 ## Stage 3 — v6 dual-GUA per VLAN
 

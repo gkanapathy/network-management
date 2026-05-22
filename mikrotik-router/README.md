@@ -195,6 +195,47 @@ re-stage of `gkanapathy-mbpmx.pub` applies here too.
   - `/ip ssh` does not have a `max-auth-tries` property in 7.21.4 (that's
     OpenSSH's `MaxAuthTries`). Brute-force resistance lives elsewhere
     (key-only auth + `/ip service address=` scoping).
+  - `/routing table` accepts `fib` as a flag, NOT `fib=yes` as an
+    assignment. `fib=yes` parses as "expected end of command" at
+    the `=`, aborts the import script, and (since the
+    `vlan-filtering=yes` line is at the very bottom of `config.rsc`)
+    locks plumtree out from the router. Cost two cold-bootstrap
+    recoveries during the Stage 2 buildout (2026-05-21) before we
+    spotted it. Use `add name=X fib` (no value).
+  - `/ipv6 dhcp-client add-default-route` defaults to `no` on 7.21.4
+    (unlike `/ip dhcp-client` which defaults to `yes`). Set it
+    explicitly. Setting `default-route-distance=N` alone is not
+    enough — the property is suppressed in `print detail` output
+    when `add-default-route=no`, which makes the omission silent.
+  - **Mangle `mark-routing` for per-source PBR is a trap on 7.21.4.**
+    Two related issues we hit during the Sonic Stage 2 buildout
+    (2026-05-21..22):
+    (a) RouterOS 7.x has **no longest-prefix-match across routing
+        tables** and **no implicit fallback** from a custom table to
+        `main`. Once a packet has `routing-mark=X`, only table `X` is
+        searched. So a LAN-destined packet from a marked source VLAN
+        (DNS to router, inter-VLAN, etc.) egresses whichever WAN the
+        marked table points at, gets masqueraded, and is dropped
+        upstream with a private-IP dst.
+    (b) Conntrack carries the routing-mark from the initial direction
+        to the reply direction. So even if you avoid (a) by scoping the
+        mark to WAN-bound traffic, reply packets *also* end up with the
+        mark, route via the custom table, and egress back out the WAN
+        instead of to the LAN client. Conntrack shows `SEEN-REPLY
+        orig-packets=N repl-packets=N` for every flow that times out at
+        the client.
+    Adding LAN-connected routes to the custom tables (so LPM within
+    the table catches LAN dsts) didn't reliably work either — static
+    routes end up with `scope=30 target-scope=10` (vs `scope=10
+    target-scope=5` on `main`'s connected routes), and the LPM didn't
+    appear to use the static entry. **Solution: use `/routing rule`
+    source-based PBR instead.** A source-based rule sets no
+    routing-mark; reply packets bypass the rule because their src is
+    the remote endpoint, falling through to `main`. Put a
+    `dst-address=192.168.0.0/16 action=lookup table=main` rule *first*
+    in the chain so inter-VLAN and LAN-to-router traffic stays in
+    `main` too. Diagnosis trick: disable the mangle `mark-routing`
+    rules; if the client recovers immediately, you're hitting this.
 - **Avoid `\` line-continuation in `set` blocks.** RouterOS's `/import`
   parser sometimes rejects continuation across long property lists.
   `/export` produces them but `/import` doesn't always accept them.
