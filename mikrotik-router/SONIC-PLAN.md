@@ -184,6 +184,26 @@ attract traffic in steady state. Everything still egresses MB.
   is the gap Stage 3 closes; record it in the apply notes. Re-plug,
   traffic reverts.
 
+### Stage 1 smoke-test results — 2026-05-21: completed
+
+Two failover/recovery cycles via `/interface set ether2 disabled=yes/no`
+(less disruptive than physical-pull, same routing effect):
+
+- **Failover and recovery both converge in ~6 s for v4 AND v6.** v6
+  client-side recovery is automatic — no `/ipv6 dhcp-client renew`
+  workaround needed in Stage 4's WAN-up script. (First trial saw a
+  slower v6 recovery and a manual renew was run; second trial without
+  the renew recovered in ~6 s, confirming the lag was a post-apply
+  transient.)
+- **BCP38 drop on v6 during MB outage confirmed empirically.** Mac
+  on plumtree (sourcing from `2607:f598:d488:6101:...` MB-pd GUA)
+  saw `curl -6 ipinfo.io` time out while Sonic was the only active
+  v6 default; Sonic upstream dropped the foreign-source packets.
+  This is the gap Stage 3's dual-GUA + source-PBR closes — the
+  "mandatory, not safety net" call is now empirically backed.
+- **Sonic delivered the literals captured at probe D**: v4
+  `23.93.121.110/21` via `23.93.120.1`, AS46375 / `sonic.net`.
+
 ## Stage 2 — v4 per-SSID PBR
 
 **Goal:** plumtree v4 egresses Sonic; guest/iot/mgmt v4 egress MB.
