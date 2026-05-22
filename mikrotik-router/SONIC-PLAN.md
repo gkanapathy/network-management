@@ -89,7 +89,13 @@ empty of probe artifacts before exit).
 of MB's bound entry showed `default-route-distance=1
 default-route-tables=default`. Same properties on `/ip dhcp-client`.
 Stage 1's manual-`::/0`-route fallback is no longer needed — use the
-property directly.
+property directly. **Gotcha discovered at first Stage 1 apply
+(2026-05-21):** on `/ipv6 dhcp-client`, `add-default-route` defaults
+to `no` — unlike `/ip dhcp-client` where it defaults to `yes`. Setting
+`default-route-distance=N` is necessary but NOT sufficient; both
+clients must also explicitly set `add-default-route=yes`. The print
+detail suppresses `default-route-distance` when
+`add-default-route=no`, which is what made the omission silent.
 
 **Probe B — counters tick on prerouting; fasttrack-bypass
 inconclusive.** A passthrough rule on
@@ -147,9 +153,10 @@ attract traffic in steady state. Everything still egresses MB.
 - `/ipv6 dhcp-client` (after current MB entry at line 251):
   `add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd
   pool-prefix-length=64 accept-prefix-without-address=yes
-  default-route-distance=2`. Probe A confirmed `default-route-distance`
-  exists on `/ipv6 dhcp-client` in 7.21.4; no manual `::/0` route
-  needed.
+  add-default-route=yes default-route-distance=2`. The
+  `add-default-route=yes` is required — `/ipv6 dhcp-client` defaults
+  it to `no` (Probe A gotcha discovered at first apply). No manual
+  `::/0` route needed.
 - `/interface list member`: `add interface=sfp-sfpplus1 list=WAN` after
   the existing ether2 entry at line 123. This brings Sonic under the
   existing input drop, forward "WAN-originated non-DSTNATed" drop, and

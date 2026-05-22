@@ -317,6 +317,20 @@ verification probe" below.)
 
 - Add `/ipv6 dhcp-client` on `sfp-sfpplus1` mirroring `mb-pd`,
   `pool-name=sonic-pd`.
+- **ISP delivery shapes differ (observed at Stage 0 probe D,
+  2026-05-21; see [`SONIC-PLAN.md`](SONIC-PLAN.md)).** Monkeybrains is
+  PD-only — `accept-prefix-without-address=yes` is *required* there.
+  Sonic delivers BOTH IA_NA and IA_PD: a literal GUA lands on
+  `sfp-sfpplus1` (observed `2001:5a8:601:2b::2:1ba2`, rotates on
+  lease) *in addition to* the delegated /56 (observed
+  `2001:5a8:6a4:d500::/56`). Both clients keep
+  `accept-prefix-without-address=yes` for shape parity — it's a no-op
+  on Sonic but mandatory on MB. The Sonic IA_NA address is not used
+  by the dual-GUA design (clients still SLAAC per-VLAN from the
+  delegated `/56`), but it gives the router a stable v6 source for
+  outbound on Sonic should we want one (e.g., source-pinned Netwatch
+  probes); MB has no equivalent, and from-router v6 sources on the
+  MB side come from per-VLAN GUAs or link-local.
 - Per VLAN, **two** `/ipv6 address from-pool=` entries: one
   `from-pool=mb-pd`, one `from-pool=sonic-pd`. Both `advertise=yes`.
 - `/ipv6 nd prefix` per-prefix `preferred-lifetime` overrides:

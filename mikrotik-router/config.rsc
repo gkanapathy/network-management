@@ -6,7 +6,7 @@
 #   ether2        WAN (monkeybrains, DHCP client)
 #   ether3-7      bridge access ports, untagged VLAN 88 (mgmt)
 #   ether8        bridge access port, untagged VLAN 88 — Mac (en7) + colima
-#   sfp-sfpplus1  unconfigured (future sonic WAN)
+#   sfp-sfpplus1  WAN (sonic, DHCP client)
 #
 # VLANs (all L3 lives on /interface vlan; never on bridge directly):
 #   88   mgmt      192.168.88.0/24    fd7f:aee1:6ce0:88::/64    vlan88
@@ -121,6 +121,7 @@ add interface=vlan10 list=LAN
 add interface=vlan20 list=LAN
 add interface=vlan30 list=LAN
 add interface=ether2 list=WAN
+add interface=sfp-sfpplus1 list=WAN
 
 # --- L3 addresses (all on VLAN sub-interfaces) ---
 /ip address
@@ -238,6 +239,12 @@ add address=192.168.88.252 mac-address=24:2F:D0:02:07:5A server=mgmt-dhcp commen
 /ip dhcp-client
 add interface=ether2
 
+# --- WAN: DHCP client on sfp-sfpplus1 (sonic, Stage 1) ---
+# default-route-distance=2 keeps MB primary in main; on MB lease loss
+# Sonic's d=2 route activates. Stage 2 switches both clients to
+# add-default-route=no and installs per-table routes manually.
+add interface=sfp-sfpplus1 default-route-distance=2 use-peer-dns=yes
+
 # --- WAN: DHCPv6-PD client on ether2 (Phase B-MB) ---
 # Asks for both IA_NA and IA_PD; Monkeybrains delegates prefix only (observed
 # /56), so accept-prefix-without-address=yes is required (probe 1, 2026-05-07).
@@ -249,6 +256,16 @@ add interface=ether2
 # alongside MB's v4 entries.
 /ipv6 dhcp-client
 add interface=ether2 request=address,prefix pool-name=mb-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=yes
+
+# Sonic v6 (Stage 1). Same shape and rationale as MB above;
+# default-route-distance=2 keeps MB primary in main. /ipv6 dhcp-client
+# add-default-route defaults to `no` on 7.21.4 (unlike /ip dhcp-client,
+# which defaults to yes) — observed on first Stage 1 apply attempt
+# when the property was omitted and no ::/0 route appeared. Both
+# clients now set it explicitly. Sonic delivers IA_NA + IA_PD (unlike
+# MB's PD-only); accept-prefix-without-address is moot for Sonic but
+# harmless and matches MB's shape.
+add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=yes default-route-distance=2
 
 # --- IPv6 GUA per VLAN, from the Monkeybrains pool (Phase B-MB) ---
 # RouterOS 7.21.4 `from-pool=` semantics is prefix-only-to-interface: the

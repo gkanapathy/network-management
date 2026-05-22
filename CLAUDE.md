@@ -68,8 +68,9 @@ router by hand — drift will get wiped on the next apply.
   apply in [mikrotik-router/SONIC-PLAN.md](mikrotik-router/SONIC-PLAN.md).
   Link-local recovery in `mikrotik-router/README.md` stays valid.
 - **Sonic WAN buildout** — Sonic line is live on `sfp-sfpplus1`
-  (Stage 0 schema probes done 2026-05-21; Sonic delivers DHCP/IPoE with
-  IA_NA + IA_PD /56). Staged rollout in
+  (Stages 0 + 1 applied 2026-05-21; Sonic v4+v6 bound at distance 2,
+  MB still primary in `main`; Sonic delivers DHCP/IPoE with IA_NA +
+  IA_PD /56). Staged rollout in
   [mikrotik-router/SONIC-PLAN.md](mikrotik-router/SONIC-PLAN.md):
   Stage 1 passive Sonic + WAN list, Stage 2 v4 per-SSID PBR (plumtree
   → sonic, guest/iot/mgmt → monkeybrains, failover both ways),
