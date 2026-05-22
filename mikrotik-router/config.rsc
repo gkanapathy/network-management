@@ -128,10 +128,13 @@ add interface=sfp-sfpplus1 list=WAN
 # per LAN VLAN. Each table carries both 0.0.0.0/0 entries (local WAN d=1,
 # other WAN d=2) so a WAN failure falls through within the table.
 # `fib` is a flag (not `fib=yes`) in RouterOS 7.21.4 — the assignment
-# form parses as "expected end of command" and aborts the import,
-# which historically locked us out by skipping the rest of the file
-# (including the vlan-filtering=yes line at the bottom). Discovered
-# 2026-05-21 after two failed Stage 2 apply attempts.
+# form parses as "expected end of command" and aborts the import.
+# (Historically that aborted-mid-import locked us out by skipping the
+# vlan-filtering=yes line that used to sit at the bottom of this file;
+# that line has since moved up to after /ip service for partial-apply
+# lockout safety, so this failure mode is less severe, but still
+# avoid.) Discovered 2026-05-21 after two failed Stage 2 apply
+# attempts.
 /routing table
 add name=mb    fib
 add name=sonic fib
@@ -223,6 +226,24 @@ set api    disabled=yes
 set ssh    address=192.168.88.0/24,192.168.10.0/24,fe80::/10
 set winbox address=192.168.88.0/24,192.168.10.0/24,fe80::/10
 set www    address=192.168.88.0/24,192.168.10.0/24,fe80::/10
+
+# --- enable VLAN filtering (early; lockout-safety on partial apply) ---
+# Hard prereq is /interface bridge vlan above (lines 107-111), which
+# populates the per-port-per-VID table that vlan-filtering enforces.
+# Once that's set, the bridge is safe to switch into filtering mode.
+#
+# This line used to live at the very END of config.rsc. Moved here on
+# 2026-05-22: if a later block (DHCP, firewall, /routing rule,
+# /system script, ...) errors during /import and aborts the script,
+# the bridge would otherwise stay in legacy no-VLAN-tag mode, locking
+# plumtree clients out of the router. Anchoring vlan-filtering=yes
+# right after /ip address + /ip ssh + /ip service means SSH-via-LAN-IP
+# survives partial applies, so the next "diagnose via /log/print, fix
+# config.rsc, re-apply" cycle doesn't need a button-reset cold
+# bootstrap. Cost two such recoveries during the Stage 2 buildout
+# before this moved up.
+/interface bridge
+set [find name=bridge] vlan-filtering=yes
 
 # --- DHCP pools ---
 /ip pool
@@ -451,9 +472,5 @@ set allowed-interface-list=LAN
 # Default is enabled+authenticate, exposes a btest server. Unused here.
 /tool bandwidth-server
 set enabled=no
-
-# --- enable VLAN filtering (LAST; after all VLAN entries are in place) ---
-/interface bridge
-set [find name=bridge] vlan-filtering=yes
 
 :log info "config.rsc: done"
