@@ -358,6 +358,39 @@ worked. Validated 2026-05-22 via live probe on the router; plumtree
 ping to `1.1.1.1` went out Sonic with replies arriving back at the
 Mac in 9–65 ms, while LAN and inter-VLAN traffic stayed unaffected.
 
+### Stage 2 results — 2026-05-22: completed (v5)
+
+Apply landed cleanly on the v5 design after four v1–v4 attempts.
+Steady-state and failover both validated. Snapshots:
+`snapshots/2026-05-22T063419Z-stage2v5-source.rsc` (source) and
+`snapshots/2026-05-22T063419Z-after-stage2v5.rsc` (post-apply
+`/export`).
+
+| Test | Result |
+|------|--------|
+| Plumtree → 1.1.1.1 (v4) | 5/5 at 13 ms avg, Sonic egress (`AS46375`) |
+| Plumtree LAN-to-router (192.168.10.1) | 2/2, rule 1 routes via `main` |
+| Plumtree inter-VLAN (192.168.88.1) | 2/2, rule 1 routes via `main` |
+| Mac curl `-4` ipinfo | Sonic `23.93.121.110` / `sonic.net` |
+| Mac curl `-6` ipinfo | MB GUA from `mb-pd` (v6 stays on MB — Stage 3 work) |
+
+**Failover (software-disable cycles on each WAN):**
+
+| Cycle | Behavior |
+|-------|----------|
+| Disable Sonic | sonic table: d=1 deactivates, **d=2 (MB) activates** within ~6 s. Plumtree curl returns MB. Other VLANs unaffected. |
+| Re-enable Sonic | d=1 (Sonic) Active again — DHCP-rebind delay >8 s, slower than software-disable revert (matches Stage 1 cable-pull observation). |
+| Disable MB | main + mb tables: d=1 deactivates, **d=2 (Sonic) activates**. Plumtree stays on Sonic (its primary). Router pings with `src=192.168.20.1` / `192.168.88.1` egress via Sonic at ~3 ms. |
+| Re-enable MB | d=1 (MB) Active again, immediate. |
+
+The per-table d=1/d=2 + `check-gateway=ping` machinery does its job
+in both directions. No symmetric-loss event during failover; plumtree
+maintains internet through any single-WAN outage.
+
+**v6 caveat carried forward.** During an MB outage, plumtree clients
+sourcing v6 from `mb-pd` GUA will be BCP38-dropped at Sonic upstream
+(same Stage 1 / Stage 2 gap). Stage 3 dual-GUA closes it.
+
 ## Stage 3 — v6 dual-GUA per VLAN
 
 **Goal:** v6 follows v4 per-SSID routing in steady state. Source-PBR

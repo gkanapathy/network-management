@@ -68,14 +68,16 @@ router by hand — drift will get wiped on the next apply.
   apply in [mikrotik-router/SONIC-PLAN.md](mikrotik-router/SONIC-PLAN.md).
   Link-local recovery in `mikrotik-router/README.md` stays valid.
 - **Sonic WAN buildout** — Sonic line is live on `sfp-sfpplus1`
-  (Stages 0 + 1 applied 2026-05-21; Sonic v4+v6 bound at distance 2,
-  MB still primary in `main`; Sonic delivers DHCP/IPoE with IA_NA +
-  IA_PD /56). Staged rollout in
-  [mikrotik-router/SONIC-PLAN.md](mikrotik-router/SONIC-PLAN.md):
-  Stage 1 passive Sonic + WAN list, Stage 2 v4 per-SSID PBR (plumtree
-  → sonic, guest/iot/mgmt → monkeybrains, failover both ways),
-  Stage 3 v6 dual-GUA + source-PBR, Stage 4 Netwatch RA-timer flip.
-  Supersedes the older PLAN.md per-SSID failover bullet.
+  (Stages 0–2 applied 2026-05-21/22; Sonic delivers DHCP/IPoE with
+  IA_NA + IA_PD /56). Per-SSID v4 PBR is the v5 design — source-based
+  via `/routing rule` after the mangle-based attempts (v1–v4) all
+  broke return traffic. Current v4 routing: plumtree → Sonic primary,
+  guest/iot/mgmt → MB primary, both directions of failover validated
+  via cable-pull and software-disable tests (2026-05-22). v6 still
+  goes via MB on all VLANs — Stage 3 work. Staged rollout in
+  [mikrotik-router/SONIC-PLAN.md](mikrotik-router/SONIC-PLAN.md);
+  remaining: Stage 3 v6 dual-GUA + source-PBR, Stage 4 Netwatch
+  RA-timer flip. Supersedes the older PLAN.md per-SSID failover bullet.
 - **Diagnose Wi-Fi bufferbloat / latency under load on the EAPs.** Sustained
   ping spikes during saturating Wi-Fi traffic suggest queueing somewhere
   in the AP→client path. First isolate: ping a LAN target from a wired
