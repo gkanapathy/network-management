@@ -186,8 +186,8 @@ attract traffic in steady state. Everything still egresses MB.
 
 ### Stage 1 smoke-test results — 2026-05-21: completed
 
-Two failover/recovery cycles via `/interface set ether2 disabled=yes/no`
-(less disruptive than physical-pull, same routing effect):
+Two software-disable failover/recovery cycles via `/interface set
+ether2 disabled=yes/no`, plus a physical cable-pull cycle for parity:
 
 - **Failover and recovery both converge in ~6 s for v4 AND v6.** v6
   client-side recovery is automatic — no `/ipv6 dhcp-client renew`
@@ -203,6 +203,16 @@ Two failover/recovery cycles via `/interface set ether2 disabled=yes/no`
   "mandatory, not safety net" call is now empirically backed.
 - **Sonic delivered the literals captured at probe D**: v4
   `23.93.121.110/21` via `23.93.120.1`, AS46375 / `sonic.net`.
+- **Physical cable-pull behaves identically to `disabled=yes`**, with
+  two cosmetic differences worth knowing about for diagnosis: (a) the
+  MB dhcp-client transitions to `status=stopped` with an "Interface
+  not active" comment and the MB default route is *removed entirely*
+  from the RIB (vs `disabled=yes` which kept the dhcp-client entry
+  visible and the route as inactive); (b) recovery on cable replug
+  was under ~2 s end-to-end (link up + DHCPDISCOVER + route reinstall
+  + Mac's curl returning MB), faster than software-disable. ISP-side
+  lease-cache likely answers a fresh DISCOVER immediately. Same v6
+  BCP38 gap during the outage window.
 
 ## Stage 2 — v4 per-SSID PBR
 
