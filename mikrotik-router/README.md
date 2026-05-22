@@ -60,25 +60,6 @@ diff -u config.rsc /tmp/router-now.rsc   # modulo /export's reformatting
 `/export` reorders and reformats sections, so a literal `diff` will never be
 clean — read it for substantive presence/absence, not line-by-line matches.
 
-### Snapshot the known-good source
-
-After verifying the apply, copy the source `config.rsc` to `snapshots/`
-under a clearly-named timestamped file. The `/export` capture above
-(`*-after-*.rsc`) is *also* a valid recovery script, but it's
-reordered/reformatted — the `-source.rsc` copy preserves the original
-comments and section order, which makes it the better artifact for a
-cold-bootstrap re-apply.
-
-```fish
-cp config.rsc snapshots/$(date -u +%Y-%m-%dT%H%M%SZ)-<stage>-source.rsc
-```
-
-Why the source matters: in the middle of an iteration (e.g., a failed
-apply attempt), the working-tree `config.rsc` is in mid-edit and not
-safe to re-apply. A pre-saved `*-source.rsc` snapshot is the
-fastest path back to a known-good state — `scp` it up, reset, replay
-— without needing to dig through `git log` for the right commit.
-
 ### After a reset, the SSH host key changes
 
 `/system reset-configuration no-defaults=yes` regenerates the router's SSH
@@ -153,11 +134,11 @@ password — **not** empty. To regain SSH access:
    it logs `ssh key imported (cold bootstrap)` and consumes the `.pub`
    off `/file/` after import.
 
-   If the working-tree `config.rsc` is in mid-edit from a failed apply,
-   use the most recent `snapshots/*-source.rsc` instead (an explicit
-   known-good copy of `config.rsc` saved after a successful apply):
-   `scp snapshots/<latest>-source.rsc gkanapathy-mbpmx.pub
-   admin@192.168.88.1:config.rsc`.
+   If the working-tree `config.rsc` is mid-edit from a failed apply,
+   `git checkout HEAD -- mikrotik-router/config.rsc` first so the
+   re-stage uses the last-committed state. `snapshots/` keeps a single
+   pre-Sonic baseline (`*-post-key-refactor.rsc`) as a deeper fallback
+   if HEAD itself is in a broken state.
 
 This means a button reset always requires physical access to the router
 plus a manual login step. Prefer the IPv6 link-local recovery above when
