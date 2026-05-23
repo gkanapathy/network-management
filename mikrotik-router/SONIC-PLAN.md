@@ -1,533 +1,138 @@
 # Sonic WAN buildout — staged plan
 
-## Context
-
-Sonic is delivered to the rb5009 on `sfp-sfpplus1` (link up). Monkeybrains
-stays live on `ether2`. Today `sfp-sfpplus1` is unconfigured
-(`config.rsc:9` calls it out), so every flow still egresses MB.
-
-End state, already designed in
-[`IPV6-PLAN.md` § Phase C](IPV6-PLAN.md):
-per-SSID WAN selection (plumtree → Sonic primary, guest/iot/mgmt → MB
-primary), v6 dual-GUA per VLAN biased by RA `preferred-lifetime`, and
-Netwatch-driven failover both directions. The model is sound and the
-schema probes (1, 2, 3) on 2026-05-07 already de-risked it.
-
-The work is too large for one apply. This plan stages it into **four
-applies**, each via the wipe-and-replay flow in [`README.md`](README.md)
-and each independently testable and revert-safe.
-
-```mermaid
-flowchart TD
-    S0["Stage 0 (pre-apply): live-router schema probes<br/>verify ipv6 dhcp-client default-route-distance,<br/>routing-mark+connection-mark interaction with fasttrack,<br/>check-gateway behavior. Capture Sonic PD length + gateway facts."]
-    S1["Stage 1: Sonic as PASSIVE secondary<br/>+ ipv6 dhcp-client sonic-pd, +ip dhcp-client sfp-sfpplus1<br/>+sfp-sfpplus1 to WAN list<br/>NO per-VLAN PBR, NO sonic-pd /64s on VLANs"]
-    S2["Stage 2: v4 per-SSID PBR (source-based)<br/>+routing tables mb, sonic<br/>+manual 0.0.0.0/0 routes per table (distance 1 & 2)<br/>+manual ::/0 routes per table<br/>+/routing rule (dst-LAN priority + per-VLAN src)<br/>Both DHCP clients switch to add-default-route=no"]
-    S3["Stage 3: v6 source-PBR + per-VLAN single-GUA<br/>+ipv6 address from-pool=sonic-pd per VLAN (advertise=yes on primary, =no on secondary)<br/>+/routing rule v6 chain (dst-LAN + per-pool src)"]
-    S4["Stage 4: Netwatch + advertise toggle<br/>+netwatch mb-probe, sonic-probe (per-table)<br/>+scripts mb-up/down, sonic-up/down<br/>flip /ipv6 address ... advertise=yes/no per VLAN<br/>+scheduler reconcile from route state"]
-    Verify1["Verify: MB still primary on all SSIDs.<br/>Pull MB: Sonic active. v6 degraded (no sonic-pd GUAs yet) — expected."]
-    Verify2["Verify: plumtree v4 egresses Sonic; others MB.<br/>Pull either WAN: per-SSID fall-through within check-gateway window."]
-    Verify3["Verify: clients carry ULA + mb-pd + sonic-pd.<br/>Default-preferred GUA matches v4 routing per VLAN.<br/>Pull primary WAN: v6 broken on that VLAN until next RA — Stage 4 closes."]
-    Verify4["Verify: v6 failover matches v4 within one RA interval.<br/>Reconciler re-asserts state after manual mis-set."]
-    S0 --> S1 --> Verify1 --> S2 --> Verify2 --> S3 --> Verify3 --> S4 --> Verify4
-```
-
-The gates between stages aren't decoration — Stage 3 needs Stage 1's
-actual PD length and prefix to write source-PBR rules; Stage 4 needs
-Stages 2 + 3 settled to flip timers meaningfully.
-
-## Final design (reference)
-
-Already documented at [`IPV6-PLAN.md` § Phase C](IPV6-PLAN.md). Key
-points reused below — don't restate the model, only deltas.
-
-- Two routing tables (`mb`, `sonic`); each carries both `::/0` and
-  `0.0.0.0/0` with local WAN d=1, other WAN d=2.
-- v4 PBR: per-VLAN source via `/routing rule` (with a dst=LAN-priority
-  rule first, so reply + inter-VLAN traffic always uses `main`).
-- v6 single-GUA per VLAN: every VLAN binds a `/64` from BOTH pools
-  (so both `/64`s are in the routing table and source-PBR can match),
-  but only the primary pool's prefix is `advertise=yes`. Clients SLAAC
-  exactly one GUA per VLAN — the one matching the primary WAN. No
-  RFC 6724 bias needed; clients have no choice to make. Trade-off:
-  loss of v6 during a single-WAN outage on the affected VLAN until
-  Stage 4 flips `advertise` on the fallback pool.
-- v6 PBR: `/routing rule` source-based per pool (same shape as v4),
-  with dst-LAN priority rules. Routing-mark is never set, so the
-  conntrack-stickiness trap that broke Stage 2 v1–v4 doesn't apply.
-- Netwatch + scripts flip RA timers on WAN-down → next-RA migration.
-  v4 failover is router-side route-distance, immediate.
-
-## Stage 0 — pre-apply schema probes (live router, no `config.rsc` edits)
-
-The probes from 2026-05-07 covered Phase B / C v6 schema but NOT these
-Sonic-day specifics. Run these on the live router (probe-then-revert,
-`comment="probe-only-remove-after"`, same hygiene as IPV6-PLAN.md §
-Schema verification probe). They produce facts the later stages encode.
-
-| Probe | Question | How |
-|-------|----------|-----|
-| **A** | Does `/ipv6 dhcp-client` accept `default-route-distance=N`? | Try `set [find pool-name=mb-pd] default-route-distance=1`. If accepted, Stage 1's manual `::/0` route disappears — use the property instead. If rejected, the draft's manual-route plan stands. |
-| **B** | Does `routing-mark` set in mangle prerouting correctly steer marked conns when fasttrack is active? | Add a no-op `mark-routing` rule on a test VLAN, watch counters. Confirms whether the `connection-mark=no-mark` fasttrack predicate is actually needed (it is, but verify on 7.21.4). |
-| **C** | What does `check-gateway=ping` do against a DHCP-bound `0.0.0.0/0` route on `ether2` today? | Temporarily add `check-gateway=ping` to MB's existing default route via `/ip route`. Watch behavior when MB upstream is pinged; restore. Validates the Stage-2 monitoring assumption. |
-| **D** | What does Sonic actually deliver? PPPoE vs DHCP? IA_NA + IA_PD or PD-only? PD length? | Add `/ip dhcp-client` and `/ipv6 dhcp-client` (pool-name=`sonic-pd-probe`) on `sfp-sfpplus1`, observe. Record the v4 gateway literal IP, v6 upstream link-local, and PD length. Remove before exporting. |
-
-**Outputs captured for downstream stages:**
-
-- Sonic delivery model (DHCP/IPoE vs PPPoE — if PPPoE, Stage 1's `ip
-  dhcp-client` becomes `/interface pppoe-client` and the v4 plan shifts).
-- Sonic PD length (drives Stage 3's per-VLAN /64 sizing; `/64` or no PD
-  trigger the edge-case rows in IPV6-PLAN.md's table).
-- Sonic v4 next-hop literal IP (Stage 2 `check-gateway`).
-- Sonic v6 upstream link-local `fe80::…%sfp-sfpplus1` (Stage 1 manual
-  ::/0 route if probe A says manual route is needed; Stage 2 manual ::/0
-  routes per table unconditionally).
-- Sonic-delivered v4 + v6 resolvers (recorded; no `config.rsc` impact —
-  `use-peer-dns=yes` defaults already cover it).
-
-### Stage 0 probe results — 2026-05-21: completed
-
-All four probes plus one follow-up (`E`) ran in a single SSH session
-with `comment="probe-only-remove-after"` hygiene; revert verified
-(`/ip dhcp-client`, `/ipv6 dhcp-client`, and `/ip firewall mangle`
-empty of probe artifacts before exit).
-
-**Probe A — `/ipv6 dhcp-client default-route-distance` (and
-`default-route-tables`) both exist on RouterOS 7.21.4.** `print detail`
-of MB's bound entry showed `default-route-distance=1
-default-route-tables=default`. Same properties on `/ip dhcp-client`.
-Stage 1's manual-`::/0`-route fallback is no longer needed — use the
-property directly. **Gotcha discovered at first Stage 1 apply
-(2026-05-21):** on `/ipv6 dhcp-client`, `add-default-route` defaults
-to `no` — unlike `/ip dhcp-client` where it defaults to `yes`. Setting
-`default-route-distance=N` is necessary but NOT sufficient; both
-clients must also explicitly set `add-default-route=yes`. The print
-detail suppresses `default-route-distance` when
-`add-default-route=no`, which is what made the omission silent.
-
-**Probe B — counters tick on prerouting; fasttrack-bypass
-inconclusive.** A passthrough rule on
-`chain=prerouting in-interface=vlan10` counted 199 pkts / 142 KB
-over 25 s of ambient vlan10 traffic. The probe shape couldn't
-distinguish "new-conn only" from "all packets including fasttracked,"
-so the underlying question stays open. The `connection-mark=no-mark`
-defensive predicate on Stage 2's fasttrack rule stays — verify
-end-to-end during Stage 2.
-
-**Probe C — MB upstream `162.217.74.129` answers ICMP at ~7 ms (3/3,
-no loss).** Stage 2's `check-gateway=ping` against the literal IP is
-viable for MB. Sonic equivalent (`23.93.120.1`) untested until Stage 1
-apply binds the Sonic line in production; record at apply-time.
-
-**Probe D — Sonic delivers DHCP/IPoE with IA_NA + IA_PD /56.**
-
-| Stratum | Value |
-|---------|-------|
-| Delivery model | DHCP/IPoE (not PPPoE) |
-| v4 address | `23.93.121.192/21` (rotates on lease — never encode in `config.rsc`) |
-| v4 next-hop | `23.93.120.1` (Stage 2 `check-gateway=ping` target) |
-| v4 DNS (peer) | `50.0.1.1`, `50.0.2.2` (lands in `/ip dns dynamic-servers` via `use-peer-dns=yes`) |
-| v6 IA_NA address | `2001:5a8:601:2b::2:1ba2` (Sonic delivers an address as well as a prefix; MB is PD-only) |
-| v6 IA_PD prefix | `2001:5a8:6a4:d500::/56` (rotates — 256 /64s, same length as MB) |
-| v6 upstream LL | `fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1` |
-| Lease length | 6h (both v4 and v6) |
-
-Sonic's IA_NA-bearing behavior (vs MB's PD-only) means `sfp-sfpplus1`
-gets a literal v6 address from Sonic on bind.
-`accept-prefix-without-address=yes` is harmless either way — keep it
-so the same config shape handles both ISPs.
-
-**Probe E (follow-up) — `default-route-tables=` is single-value, NOT
-a comma-separated list.** Attempting
-`default-route-tables=main,probe-test` raised
-`input does not match any value of table-default`. So Stage 2's "rip
-out DHCP-installed routes, install manual routes per (table × WAN)"
-approach is still required — there is no shortcut via multi-table
-DHCP-installed routes. Probe also confirmed `default-route-tables=default`
-maps to the `main` table (the resulting route landed in `main`).
-
-## Stage 1 — Sonic as passive secondary WAN
-
-**Goal:** Sonic binds v4 + v6, joins WAN interface-list, but does not
-attract traffic in steady state. Everything still egresses MB.
-
-### `config.rsc` changes
-
-- Topology comment at top (line 9): `sfp-sfpplus1  WAN (sonic, DHCP
-  client)`.
-- `/ip dhcp-client` (after current `add interface=ether2` at line 239):
-  `add interface=sfp-sfpplus1 default-route-distance=2 use-peer-dns=yes`.
-  MB stays default (distance 1).
-- `/ipv6 dhcp-client` (after current MB entry at line 251):
-  `add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd
-  pool-prefix-length=64 accept-prefix-without-address=yes
-  add-default-route=yes default-route-distance=2`. The
-  `add-default-route=yes` is required — `/ipv6 dhcp-client` defaults
-  it to `no` (Probe A gotcha discovered at first apply). No manual
-  `::/0` route needed.
-- `/interface list member`: `add interface=sfp-sfpplus1 list=WAN` after
-  the existing ether2 entry at line 123. This brings Sonic under the
-  existing input drop, forward "WAN-originated non-DSTNATed" drop, and
-  masquerade — all use `in-interface-list=WAN` / `out-interface-list=WAN`
-  already, so no other edits needed.
-- **No** `/ipv6 address from-pool=sonic-pd` on VLANs. Stage 1 must be
-  observably "MB everywhere" until Stage 3.
-
-### Verify
-
-- `/ip dhcp-client print` — Sonic bound, IPv4 + gateway captured.
-- `/ipv6 dhcp-client print detail` — Sonic bound, prefix shown, length
-  matches Stage 0 probe D. `sonic-pd` pool populated.
-- `/ip route print where dst-address=0.0.0.0/0` — two routes; MB d=1
-  active, Sonic d=2 inactive.
-- `/ipv6 route print where dst-address=::/0` — same shape.
-- From plumtree: `curl -4 ipinfo.io` and `curl -6 ipinfo.io` both show
-  MB — `AS32329` (org appears as `Another Corporate ISP, LLC`,
-  Monkeybrains' registered name), reverse-DNS
-  `*.public.monkeybrains.net`, v6 in `2607:f598:d488::/47`. The
-  hostname is the unambiguous signal.
-- Failover smoke test: unplug MB ether2. Within ~10s, Sonic v4 route
-  activates and `curl -4 ipinfo.io` returns Sonic ASN. v6 traffic
-  partially breaks because clients still hold only `mb-pd` GUAs — this
-  is the gap Stage 3 closes; record it in the apply notes. Re-plug,
-  traffic reverts.
-
-### Stage 1 smoke-test results — 2026-05-21: completed
-
-Two software-disable failover/recovery cycles via `/interface set
-ether2 disabled=yes/no`, plus a physical cable-pull cycle for parity:
-
-- **Failover and recovery both converge in ~6 s for v4 AND v6.** v6
-  client-side recovery is automatic — no `/ipv6 dhcp-client renew`
-  workaround needed in Stage 4's WAN-up script. (First trial saw a
-  slower v6 recovery and a manual renew was run; second trial without
-  the renew recovered in ~6 s, confirming the lag was a post-apply
-  transient.)
-- **BCP38 drop on v6 during MB outage confirmed empirically.** Mac
-  on plumtree (sourcing from `2607:f598:d488:6101:...` MB-pd GUA)
-  saw `curl -6 ipinfo.io` time out while Sonic was the only active
-  v6 default; Sonic upstream dropped the foreign-source packets.
-  This is the gap Stage 3's dual-GUA + source-PBR closes — the
-  "mandatory, not safety net" call is now empirically backed.
-- **Sonic delivered the literals captured at probe D**: v4
-  `23.93.121.110/21` via `23.93.120.1`, AS46375 / `sonic.net`.
-- **Physical cable-pull behaves identically to `disabled=yes`**, with
-  two cosmetic differences worth knowing about for diagnosis: (a) the
-  MB dhcp-client transitions to `status=stopped` with an "Interface
-  not active" comment and the MB default route is *removed entirely*
-  from the RIB (vs `disabled=yes` which kept the dhcp-client entry
-  visible and the route as inactive); (b) recovery on cable replug
-  was under ~2 s end-to-end (link up + DHCPDISCOVER + route reinstall
-  + Mac's curl returning MB), faster than software-disable. ISP-side
-  lease-cache likely answers a fresh DISCOVER immediately. Same v6
-  BCP38 gap during the outage window.
-
-## Stage 2 — v4 per-SSID PBR (source-based, via `/routing rule`)
-
-**Goal:** plumtree v4 egresses Sonic; guest/iot/mgmt v4 egress MB.
-Symmetric failover via `check-gateway` + route distance.
-
-**Design: source-based PBR.** This stage went through four mangle-based
-revisions (v1–v4) that all broke plumtree v4 connectivity in
-reproducible ways. The mangle approach got abandoned; v5 uses
-`/routing rule` matching on source address instead. See post-mortem
-below for what went wrong.
-
-This stage is **not purely additive**: both DHCP clients (v4 + v6, both
-WANs) switch to `add-default-route=no`, and *all* defaults get installed
-manually so each routing table is complete. The wipe-and-replay flow
-keeps the live transition clean; the diff vs Stage 1 will yank the
-DHCP-installed routes that Stage 1 relied on.
-
-### `config.rsc` changes
-
-- `/routing table`: `add name=mb fib`, `add name=sonic fib`. (NOT
-  `fib=yes` — RouterOS 7.21.4 treats `fib` as a flag, not a boolean
-  property; the assignment form parses as "expected end of command",
-  aborts the import script, and skips the rest of `config.rsc` —
-  including `vlan-filtering=yes` at the bottom, which locks plumtree
-  out from the router. Discovered the hard way on the first two
-  Stage 2 apply attempts, 2026-05-21.)
-- Both v4 DHCP clients: `add-default-route=no`. They still bind
-  addresses and the gateway is readable from `/ip dhcp-client`; we
-  install all defaults manually so each table can carry both ISPs.
-- Both v6 DHCP clients: `add-default-route=no`. Stage 1's
-  `default-route-distance=2` on the Sonic client gets replaced (the
-  client installs no route at all); manual `::/0` entries below cover
-  all three tables.
-- `/ip route` — six `0.0.0.0/0` entries (3 tables × 2 WANs):
-
-  | Table  | Gateway          | Distance | `check-gateway` |
-  |--------|------------------|----------|-----------------|
-  | `main` | MB next-hop IP   | 1        | `ping`          |
-  | `main` | Sonic next-hop IP| 2        | —               |
-  | `mb`   | MB next-hop IP   | 1        | `ping`          |
-  | `mb`   | Sonic next-hop IP| 2        | —               |
-  | `sonic`| Sonic next-hop IP| 1        | `ping`          |
-  | `sonic`| MB next-hop IP   | 2        | —               |
-
-  Gateway is the literal next-hop IP captured in Stage 0/1, not the
-  interface — `check-gateway` against a DHCP-bound interface pings the
-  resolved DHCP server, which the ISP may not answer; pinging the
-  literal next-hop is more reliable.
-
-- `/ipv6 route` — same 6-row shape with `dst-address=::/0`, gateways as
-  the upstream link-locals (`fe80::…%ether2`, `fe80::…%sfp-sfpplus1`).
-  RouterOS v6 routes accept `check-gateway` on 7.x; use `ping`
-  mirroring v4.
-
-- `/routing rule` — five rules, processed in order:
-
-  ```
-  add dst-address=192.168.0.0/16  action=lookup table=main  comment="LAN dsts -> main"
-  add src-address=192.168.10.0/24 action=lookup table=sonic comment="plumtree -> sonic"
-  add src-address=192.168.20.0/24 action=lookup table=mb    comment="guest -> mb"
-  add src-address=192.168.30.0/24 action=lookup table=mb    comment="iot -> mb"
-  add src-address=192.168.88.0/24 action=lookup table=mb    comment="mgmt -> mb"
-  ```
-
-  Rule 1 catches reply traffic (NAT-reversed dst = LAN client) AND
-  inter-VLAN traffic BEFORE the per-VLAN src rules fire, so those
-  always route via `main`'s connected LAN routes. Rules 2–5 steer
-  outbound LAN-to-WAN traffic to the right table by source subnet.
-  Reply packets don't match the src rules because their src is the
-  remote endpoint (not a LAN address). Router-originated traffic
-  takes its source from the egress interface (typically a WAN IP),
-  so it also doesn't match src rules and falls through to main.
-
-- `/ip firewall nat`: existing masquerade (`out-interface-list=WAN`)
-  needs no change; it NATs out whichever WAN a packet actually exits.
-- **No mangle changes. No address-list. No fasttrack predicate
-  changes.** The mangle/conntrack PBR pattern from v1–v4 is dropped
-  entirely — see post-mortem below.
-
-### Verify
-
-- `curl -4 ipinfo.io` from plumtree → Sonic ASN (`AS46375`); from
-  guest/iot/mgmt host → MB ASN (`AS32329`).
-- `traceroute -4` from each SSID confirms first ISP hop.
-- `ping 192.168.10.1` from plumtree (LAN-to-router) succeeds — rule 1
-  catches it.
-- `ping 192.168.88.1` from plumtree (inter-VLAN) succeeds — rule 1
-  catches it.
-- Pull Sonic SFP: plumtree falls through to MB within `check-gateway`'s
-  detection window. Restore: reverts to Sonic.
-- Pull MB ether2: guest/iot/mgmt fall through to Sonic. Restore: reverts.
-
-### Why source-based PBR, not mangle
-
-Four v1–v4 attempts used `/ip firewall mangle` to mark connections by
-source VLAN and mark routing by connection-mark. All broke plumtree
-v4 reproducibly. Two RouterOS 7.21.4 properties combined to make the
-mangle scheme unworkable:
-
-- No longest-prefix-match across routing tables and no implicit
-  fallback from a custom table to `main`. Once a packet has
-  `routing-mark=X`, only table `X` is searched. A LAN-destined packet
-  from a marked source ends up egressing the WAN with a private-IP
-  destination.
-- Conntrack carries the routing-mark from the initial direction to
-  the reply direction. So even after scoping the mark to WAN-bound
-  traffic, reply packets get the mark applied via conntrack, route
-  via the custom table, and egress the WAN instead of the LAN client.
-
-Source-based `/routing rule` never sets a routing-mark. Reply packets
-have a non-LAN source so they bypass the src rules and fall through
-to `main` — where the connected LAN routes always worked. See
-[`README.md`](README.md) § Common pitfalls for the generalized
-"mangle mark-routing PBR is a trap" entry.
-
-### Stage 2 results — 2026-05-22: completed (v5)
-
-Apply landed cleanly on the v5 design after the four mangle-based
-attempts. Steady-state and failover both validated.
-
-| Test | Result |
-|------|--------|
-| Plumtree → 1.1.1.1 (v4) | 5/5 at 13 ms avg, Sonic egress (`AS46375`) |
-| Plumtree LAN-to-router (192.168.10.1) | 2/2, rule 1 routes via `main` |
-| Plumtree inter-VLAN (192.168.88.1) | 2/2, rule 1 routes via `main` |
-| Mac curl `-4` ipinfo | Sonic `23.93.121.110` / `sonic.net` |
-| Mac curl `-6` ipinfo | MB GUA from `mb-pd` (v6 stays on MB — Stage 3 work) |
-
-**Failover (software-disable cycles on each WAN):**
-
-| Cycle | Behavior |
-|-------|----------|
-| Disable Sonic | sonic table: d=1 deactivates, **d=2 (MB) activates** within ~6 s. Plumtree curl returns MB. Other VLANs unaffected. |
-| Re-enable Sonic | d=1 (Sonic) Active again — DHCP-rebind delay >8 s, slower than software-disable revert (matches Stage 1 cable-pull observation). |
-| Disable MB | main + mb tables: d=1 deactivates, **d=2 (Sonic) activates**. Plumtree stays on Sonic (its primary). Router pings with `src=192.168.20.1` / `192.168.88.1` egress via Sonic at ~3 ms. |
-| Re-enable MB | d=1 (MB) Active again, immediate. |
-
-The per-table d=1/d=2 + `check-gateway=ping` machinery does its job
-in both directions. No symmetric-loss event during failover; plumtree
-maintains internet through any single-WAN outage.
-
-**v6 caveat carried forward.** During an MB outage, plumtree clients
-sourcing v6 from `mb-pd` GUA will be BCP38-dropped at Sonic upstream
-(same Stage 1 / Stage 2 gap). Stage 3 dual-GUA closes it.
-
-## Stage 3 — v6 per-SSID routing (source-PBR + single-GUA-per-VLAN)
-
-**Applied 2026-05-22.** plumtree v6 egresses Sonic; guest/iot/mgmt v6
-egress MB. Routing in `config.rsc`:
-
-- `/ipv6 address` — every VLAN binds **both** pools (so both `/64`s
-  are in the routing table and source-PBR can match), but only the
-  primary pool is `advertise=yes`:
-  - vlan10 (plumtree): `sonic-pd` advertised, `mb-pd` hidden
-  - vlan20 / vlan30 / vlan88: `mb-pd` advertised, `sonic-pd` hidden
-- `/routing rule` v6 chain (appended to the Stage 2 v4 rules) — same
-  pattern as v4: dst-LAN priority rules first (ULA `/48`, mb-pd `/56`,
-  sonic-pd `/56` all → `main` so reply + inter-VLAN traffic stays on
-  connected routes); then per-pool src rules (`mb-pd /56 → mb`,
-  `sonic-pd /56 → sonic`).
-- `/ipv6 route` — manual `::/0` per table, mirroring v4 distance
-  1/2 + `check-gateway=ping` against the upstream link-local.
-- Both `/ipv6 dhcp-client` entries: `add-default-route=no` (defaults
-  installed manually so each table can carry both ISPs).
-
-**Verify on apply day:** Mac on plumtree curl `-6 ipinfo.io` returned
-`2001:5a8:6a5:4601:...` → **AS46375 Sonic Telecom**. `/ipv6 address
-print` shows the advertise flags exactly per the design. `/ipv6 nd
-prefix print` shows 4 GUA `/64` entries advertised — one per VLAN, all
-matching the primary WAN.
-
-### Why single-GUA, not dual-GUA + preferred-lifetime bias
-
-Original design: bind both pools per VLAN with `advertise=yes`, then
-use `/ipv6 nd prefix set [find ...] preferred-lifetime=...` (driven
-by Stage 4 scripts) to deprecate the non-primary GUA so RFC 6724
-biases sources. **Doesn't work on RouterOS 7.21.4** — `/ipv6 nd
-prefix` entries derived from `/ipv6 address from-pool=...` are
-dynamic, and `set` on them fails with `failure: can not change
-dynamic prefix`. (The 2026-05-07 IPV6-PLAN.md probe that said this
-works tested a *static* `/ipv6 nd prefix add` entry — a different
-case.) Switched to the `advertise=yes/no` toggle, which gets the
-steady-state design intent for free at the cost of dual-GUA safety
-net during a single-WAN outage. See [`README.md`](README.md) Common
-Pitfalls for the generalized lesson. Restoring a fallback path
-(static `/ipv6 nd prefix add` per-VLAN per-pool, or revisiting the
-preferred-lifetime mechanism) is open future work.
-
-### Literal `/56`s in `/routing rule` (not address-list)
-
-`/routing rule` on 7.21.4 only accepts literal CIDR for src/dst —
-`src-address-list=` is rejected. Mitigation: DUID is stable (driven
-by the bridge `admin-mac` set in `config.rsc`), so the Sonic-pd /56
-only rotates when the dhcp-client entry is recreated (full apply or
-interface flap). Before each apply that touches `/ipv6 dhcp-client`,
-read the current PD and update the literal in `/routing rule` if it
-differs:
-
-```
-ssh admin@192.168.88.1 '/ipv6 dhcp-client get [find pool-name=sonic-pd] prefix'
-```
-
-## Stage 4 — Netwatch + dynamic `advertise=` flip
+Sonic delivered on `sfp-sfpplus1`; Monkeybrains on `ether2`. Per-SSID
+WAN selection, with v4 + v6 PBR, and per-WAN failover. Designed in
+[`IPV6-PLAN.md` § Phase C](IPV6-PLAN.md); staged here for incremental
+apply.
+
+**Status (2026-05-22):** Stages 0–3 applied. Reconciler-lite +
+main-table flip to Sonic-primary applied at the same time. Stage 4
+(Netwatch + dynamic `advertise=` flip) pending.
+
+## Shipped design (current state)
+
+- **Routing tables:** `main`, `mb`, `sonic`. Each carries `::/0` +
+  `0.0.0.0/0` with the table's local WAN at d=1 (+`check-gateway=ping`)
+  and the other WAN at d=2 (failover).
+- **`main` is Sonic-primary** — router-originated traffic (DNS, NTP)
+  and any traffic that doesn't match a `/routing rule` src/dst rule
+  prefers Sonic.
+- **v4 PBR (Stage 2):** per-VLAN source via `/routing rule`. plumtree
+  (`192.168.10.0/24`) → `sonic`; guest/iot/mgmt → `mb`. A
+  `dst-address=192.168.0.0/16 → main` priority rule first catches
+  reply + inter-VLAN traffic so it stays on connected routes.
+- **v6 PBR (Stage 3):** source-based per pool via `/routing rule`,
+  same shape as v4. ULA dst rule is static; per-pool /56 src/dst
+  rules are reconciler-managed (see below).
+- **v6 single-GUA per VLAN:** every VLAN binds *both* pools (so
+  source-PBR can match either) but only the primary pool sets
+  `advertise=yes`. Clients SLAAC exactly one GUA per VLAN — the
+  matching primary WAN's. Trade-off: no dual-GUA safety net during a
+  single-WAN outage until Stage 4 flips `advertise=` on the fallback
+  pool.
+
+### Reconciler-lite
+
+The `/routing rule` v6 src/dst entries that reference DHCPv6-PD /56
+prefixes (`mb-pd`, `sonic-pd`) are NOT declared statically. A
+`/system script` (`v6-reconciler`) reads the live pool prefix from
+`/ipv6 dhcp-client` and (re)creates the entries with stable
+`comment="auto-v6-{src,dst}-<pool>"` identifiers. Driven by:
+
+- A 2 min `/system scheduler` tick (`v6-reconciler-tick`) — catches
+  any prefix rotation within 2 min worst case.
+- `:execute { :delay 60s; /system script run v6-reconciler }` at the
+  end of `config.rsc`'s script section — apply-day bootstrap, since
+  `start-time=startup` schedulers don't fire on the boot during which
+  they're created.
+- A `start-time=startup` scheduler (`v6-reconciler-boot`) — fires on
+  subsequent clean reboots.
+
+The Sonic-pd /56 lives entirely in the live DHCPv6 lease state; no
+literal reference in `config.rsc`. A prefix rotation from the ISP is
+detected and corrected automatically within one tick.
+
+## Stage 4 — Netwatch + dynamic `advertise=` flip (pending)
 
 **Goal:** v6 failover symmetric with v4 — primary WAN down toggles
 `/ipv6 address ... advertise=yes/no` on the affected VLAN so clients
-migrate to the fallback pool's GUA on the next RA.
+SLAAC the fallback pool's GUA on the next RA. Original SONIC-PLAN
+draft used `/ipv6 nd prefix preferred-lifetime` overrides; 7.21.4
+rejects `set` on dynamic prefix entries (Stage 3 post-mortem). The
+`advertise=yes/no` toggle on `/ipv6 address` works in steady state
+(Stage 3 confirmed) so Stage 4 reuses it dynamically.
 
-Mechanism shift from the original SONIC-PLAN draft: that plan used
-`/ipv6 nd prefix preferred-lifetime` overrides, which 7.21.4 rejects
-on dynamic prefix entries (see Stage 3). This stage uses the
-`advertise=yes/no` toggle on `/ipv6 address` itself, which Stage 3
-proved works in steady state. On a WAN-down event, the affected VLAN's
-secondary pool gets flipped to `advertise=yes`; the failed primary
-gets flipped to `advertise=no`. Clients SLAAC the fallback GUA on the
-next RA and source from it.
+**`config.rsc` shape:**
 
-### `config.rsc` changes
-
-- `/tool netwatch`: two probes pinging the same external target through
-  different tables.
-
+- `/tool netwatch`: two probes pinging the same external target
+  through different tables (avoids target-side outages firing false
+  WAN-down events).
   ```
   add comment=mb-probe    type=icmp host=1.1.1.1 routing-table=mb    \
       interval=10s timeout=2s up-script=mb-up    down-script=mb-down
   add comment=sonic-probe type=icmp host=1.1.1.1 routing-table=sonic \
       interval=10s timeout=2s up-script=sonic-up down-script=sonic-down
   ```
-
 - `/system script`: four scripts (`mb-up`, `mb-down`, `sonic-up`,
-  `sonic-down`). Each flips `advertise=` on the affected
-  `/ipv6 address` entries. Example for `sonic-down` (vlan10 is the
-  only VLAN whose primary is Sonic):
-
+  `sonic-down`). Each flips `advertise=` on the affected `/ipv6
+  address` entries by `find interface=... from-pool=...` (both stable
+  across PD renewal, unlike the literal prefix). Example for
+  `sonic-down`:
   ```
   /ipv6 address set [find interface=vlan10 from-pool=sonic-pd] advertise=no
   /ipv6 address set [find interface=vlan10 from-pool=mb-pd]    advertise=yes
   ```
+  `sonic-up` reverts; `mb-down` / `mb-up` are symmetric for
+  vlan20/30/88.
+- Extend `v6-reconciler` to also re-assert `advertise=` based on
+  per-table route active state (`/ip route get [find …] active`).
+  Belt-and-suspenders against a missed Netwatch event.
+- Tighten `/ipv6 nd min-rtr-adv-interval` on vlan10/20/30/88 to
+  15–30s so RA-driven failover converges faster.
 
-  `sonic-up` reverts to Stage-3 defaults. `mb-down` / `mb-up` are
-  symmetric for vlan20/30/88.
+**Verify:**
 
-  Use `find` by `interface=` + `from-pool=` — both are stable across
-  PD renewal, unlike the literal prefix.
-
-- `/system scheduler`: a periodic reconciler (5–10 min interval) that
-  reads route state (`/ip route get [find …] active` per table), not
-  Netwatch status, and re-asserts `advertise=` based on what's
-  actually up. Belt-and-suspenders against a missed event.
-
-- Tighten `/ipv6 nd` `min-rtr-adv-interval` on vlan10/20/30/88 to
-  15–30s so RA-driven failover converges faster. Don't go too low or
-  RA traffic becomes background noise.
-
-### Verify
-
-- Trigger `sonic-down` manually first (before pulling cable) — confirm
-  `/ipv6 address print` shows `sonic-pd` on vlan10 now `advertise=no`
-  and `mb-pd` on vlan10 now `advertise=yes`.
-- Pull Sonic SFP: within `check-gateway` window v4 plumtree falls to
-  MB; within Netwatch interval + one RA, plumtree v6 clients pick up
-  the `mb-pd` GUA via SLAAC, source from it, egress via MB.
+- Manual trigger of `sonic-down` → `/ipv6 address print` shows the
+  flip on vlan10.
+- Pull Sonic SFP → within `check-gateway` window v4 plumtree falls
+  to MB; within one Netwatch interval + one RA, plumtree v6 clients
+  pick up the `mb-pd` GUA via SLAAC, source from it, egress via MB.
 - Restore. Within Netwatch recovery interval, scripts revert.
-- Reconciler: manually misset `advertise=` on one entry; wait the
-  scheduler tick; confirm restoration.
-- Symmetric story for MB pull.
+- Reconciler self-heal: manually misset `advertise=` on one entry;
+  wait the 2 min reconciler tick; confirm restoration.
+
+## Stages 0–3 — history (collapsed)
+
+Detail lives in `config.rsc` comments; what's worth preserving:
+
+- **Stage 0 probes (2026-05-21)** captured Sonic delivery shape:
+  DHCP/IPoE with IA_NA + IA_PD /56, v4 next-hop `23.93.120.1`, v6
+  upstream LL `fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1`, 6h lease.
+  Also: 7.21.4 has `default-route-distance` / `default-route-tables`
+  on `/ipv6 dhcp-client` (both single-value); `add-default-route`
+  defaults to `no` on v6 (unlike v4); `default-route-tables=default`
+  maps to `main`.
+- **Stage 1 (2026-05-21)** bound Sonic as passive secondary.
+  Failover/recovery converges in ~6s for v4 + v6; cable-pull recovery
+  ~2s. Sonic upstream BCP38-drops foreign-source v6 packets (motivated
+  Stage 3's source-PBR as mandatory, not safety-net).
+- **Stage 2 (2026-05-22)** v4 source-based PBR via `/routing rule`.
+  Took five iterations: v1–v4 used `/ip firewall mangle mark-routing`
+  and all broke return traffic, because (a) 7.x has no LPM across
+  tables and no fallback to main, and (b) conntrack carries the
+  routing-mark to reply direction. Source-based `/routing rule` (v5)
+  never sets a mark; reply packets bypass the rules and fall through
+  to `main` where connected LAN routes always worked. Generalized
+  lesson in [`README.md`](README.md) § Common Pitfalls.
+- **Stage 3 (2026-05-22)** v6 source-based PBR + single-GUA-per-VLAN.
+  Original "dual-GUA + `/ipv6 nd prefix` preferred-lifetime" design
+  failed because dynamic prefix entries reject `set` on 7.21.4.
+  Switched to `advertise=yes/no` on `/ipv6 address` itself.
 
 ## Critical files
 
-- [`config.rsc`](config.rsc) — every stage edits this and re-applies
-  via wipe-and-replay.
-- [`IPV6-PLAN.md`](IPV6-PLAN.md) § Phase C — parent design doc; tick the
-  Phase C checklist as each stage lands; update the "safety net" wording
-  in Stage 3.
-- [`../CLAUDE.md`](../CLAUDE.md) "What's next" — Sonic WAN buildout
-  bullet collapses as stages land.
-- [`snapshots/`](snapshots/) — pre-apply backups land here per the
-  existing apply flow ([`README.md`](README.md) step 1).
-
-## Reuse vs new code
-
-- The existing `/interface list member` membership-driven WAN rules
-  (input drop, forward drop, masquerade — at lines 283, 291, 301)
-  already correctly handle multiple WANs. No new firewall infrastructure
-  needed beyond mangle and the fasttrack predicate tweak.
-- The wipe-and-replay flow in [`README.md`](README.md) (Apply
-  section) is used unchanged for each stage's apply — including the
-  `:parse` pre-flight, the post-reset SSH-host-key handling, and the
-  IPv6 link-local recovery backdoor if a stage breaks v4.
-- `from-pool=` semantics on `/ipv6 address` are already understood
-  (probe 1, 2026-05-07): no `address=` argument, prefix-only-to-interface.
-  Stage 3 uses the same form for `sonic-pd`.
-
-## Sequencing notes
-
-- Each stage is its own `scp config.rsc … && /system reset-configuration
-  … run-after-reset=config.rsc` cycle. Brief outage (~60–90s) per apply.
-- Verify Stage N for "at least a few hours / a day" in production before
-  starting Stage N+1, so transient breakage on one stage doesn't
-  compound into the next.
-- Stage 1 is the riskiest in terms of "what does Sonic actually look
-  like at the wire" — Stage 0 probes are non-negotiable.
-- Stages 2 and 3 each leave a "primary-WAN-down → v6 partially
-  degraded" gap until Stage 4 closes it. IPV6-PLAN.md's `C-v4` then
-  `C-v6` split is exactly this trade-off; Stages 2+3 here are that same
-  intermediate state.
-- Keep `/ip ssh password-authentication=yes` (per the CLAUDE.md
-  deferred-tightening note) until all four stages have settled. The
-  password fallback stays the belt-and-suspenders while this work is
-  active. Revisit when the buildout is done.
+- [`config.rsc`](config.rsc) — source of truth for the live router.
+- [`IPV6-PLAN.md`](IPV6-PLAN.md) § Phase C — parent design doc for the
+  v6 multi-WAN model.
+- [`README.md`](README.md) § Common Pitfalls — generalized lessons
+  across all stages.

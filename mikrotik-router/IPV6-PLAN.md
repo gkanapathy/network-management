@@ -22,19 +22,26 @@ primary-WAN failure.
                  │  probe MB GW, probe Sonic GW      │
                  │  fire scripts on up/down          │
                  └───┬─────────────────────────┬─────┘
-                     │ flips route distance    │ flips RA preferred-lifetime
+                     │ flips route distance    │ flips /ipv6 address advertise=
                      ▼                         ▼
             ┌──────────────────┐      ┌────────────────────┐
-            │ v4: PBR + tables │      │ v6: dual-GUA + RA  │
-            │  per-VLAN mark → │      │  pref-LT 7d / 0    │
-            │  table=mb|sonic  │      │  per VLAN per WAN  │
+            │ v4: PBR + tables │      │ v6: per-VLAN       │
+            │  per-VLAN src →  │      │  single-GUA via RA │
+            │  table=mb|sonic  │      │  advertise=yes/no  │
             └────────┬─────────┘      └──────────┬─────────┘
                      │ router-side                │ client-side
-                     │ route flip (immediate)     │ RA-driven (next interval)
+                     │ route flip (immediate)     │ next-RA-driven SLAAC
                      ▼                            ▼
                  v4 client                    v6 client
-                (1 addr, NAT)            (ULA + 2 GUAs, RFC 6724)
+                (1 addr, NAT)            (ULA + 1 GUA per VLAN)
 ```
+
+Note: as-shipped design swapped RA `preferred-lifetime` bias (the
+original Phase C plan) for `advertise=yes/no` on `/ipv6 address`,
+after we found dynamic `/ipv6 nd prefix` entries reject `set` on
+7.21.4. See [`SONIC-PLAN.md`](SONIC-PLAN.md) Stage 3 for the
+post-mortem. Where this doc and SONIC-PLAN differ on Phase C
+specifics, SONIC-PLAN wins.
 
 ## Terms
 
@@ -48,9 +55,9 @@ primary-WAN failure.
   prefix to your router; you sub-allocate `/64`s per VLAN.
 - **RFC 6724 source-address selection:** The host-side rule for which
   of its multiple addresses to use as the source of an outbound
-  connection. We bias it via RA-advertised `preferred-lifetime`:
-  `preferred-lifetime=0` deprecates a prefix so clients won't pick it
-  for new flows.
+  connection. The original Phase C plan biased it via RA-advertised
+  `preferred-lifetime`; the as-shipped design sidesteps it by
+  advertising only one GUA per VLAN so clients have no choice to make.
 - **PBR / mangle marks:** Policy-based routing in RouterOS, expressed
   as `/ip firewall mangle` (or `/ipv6 firewall mangle`) rules that mark
   packets/connections with a routing-mark; that mark steers them into a
@@ -149,19 +156,18 @@ verification probe" below.)
   mangle` — see [`SONIC-PLAN.md`](SONIC-PLAN.md) Stage 2 post-mortem
   for why mangle `mark-routing` doesn't work on 7.21.4.
 
-### v4 layer — primary/secondary
+### v4 layer — primary/secondary (applied 2026-05-22 as Sonic Stage 2)
 
-- Add `/ip dhcp-client` on `sfp-sfpplus1` (Sonic).
-- Per-VLAN PBR via mangle:
+- `/ip dhcp-client` on `sfp-sfpplus1` (Sonic) joined the WAN
+  interface-list.
+- Per-VLAN PBR via `/routing rule` source-based (NOT mangle — see
+  [`SONIC-PLAN.md`](SONIC-PLAN.md) Stage 2 post-mortem):
   - `vlan10` (plumtree) → `sonic`
   - `vlan20` (guest), `vlan30` (iot), `vlan88` (mgmt) → `mb`
 - Each routing table lists the *other* WAN at higher distance, so a
-  primary-WAN failure fails through to secondary.
-- NAT (`masquerade`) on each WAN's egress, shape unchanged from
-  `config.rsc:238–239`.
-- Applied 2026-05-22 as Sonic Stage 2 via source-based PBR
-  (`/routing rule`), not mangle mark-routing. See
-  [`SONIC-PLAN.md`](SONIC-PLAN.md) Stage 2 for the live shape.
+  primary-WAN failure fails through to secondary. `main` is now
+  Sonic-primary (applied 2026-05-22 with the reconciler-lite change).
+- NAT (`masquerade`) on each WAN's egress; shape unchanged.
 
 ### v6 layer — per-VLAN single-GUA via `advertise=yes/no`
 
@@ -261,19 +267,23 @@ the per-VLAN ULA `::1` from Phase A. Phase B-MB §2 above and the
 "Where to edit `config.rsc`" section below are written against this
 finding.
 
-### Probe 2 — `/ipv6 nd prefix` per-prefix `preferred-lifetime` (Phase C gate): finding — **works cleanly**
+### Probe 2 — `/ipv6 nd prefix` per-prefix `preferred-lifetime` (Phase C gate): finding — **works on static entries only**
 
 `add prefix=2607:f598:d488:6100::/64 interface=vlan88
-preferred-lifetime=0s` was accepted. Resulting entry has
-`preferred-lifetime=0s`, default `valid-lifetime=4w2d`,
-`on-link=yes`, `autonomous=yes`.
+preferred-lifetime=0s` was accepted; subsequent `set` succeeded.
 
-Script-driven flips: `set [find ...] preferred-lifetime=1w` and back
-to `0s` both succeeded. This is exactly the operation the Phase C
-Netwatch failover script will perform, and it works in the
-running 7.21.4. **The full-RA-replacement fallback noted in Risks
-below is no longer needed; the v6 failover model is implementable
-as designed.**
+**Limitation discovered at Stage 3 (2026-05-22):** the probe tested
+a *static* `/ipv6 nd prefix add` entry. The actual entries derived
+from `/ipv6 address from-pool=...` are *dynamic* (`D` flag) and
+reject `set` with `failure: can not change dynamic prefix`. So the
+original Phase C design — advertise both pools, deprecate one via
+preferred-lifetime override — turned out to be unimplementable as
+designed on 7.21.4. The shipped design uses `advertise=yes/no` on
+`/ipv6 address` instead.
+
+A future revisit could restore the dual-GUA path via 8 static `/ipv6
+nd prefix add` entries (4 VLANs × 2 pools) with computed /64 literals
+— at the cost of /64-rotation bookkeeping. Deferred.
 
 ### Probe 3 — `/ipv6 dhcp-client renew` re-derivation (Phase B-MB gate): finding — **automatic**
 
@@ -316,31 +326,29 @@ controller exposes per-SSID IPv6 toggles, leave them consistent with
 
 ## Phase C apply staging
 
-Phase C (Sonic-day v6 + v4 multi-WAN) is staged as
-[`SONIC-PLAN.md`](SONIC-PLAN.md) Stages 0–4. The IPv4 piece (Stage 2
-source-based PBR) is already applied; v6 dual-GUA + Netwatch arrive in
-Stages 3 and 4. Where IPV6-PLAN.md and SONIC-PLAN.md differ on Phase C
-specifics, SONIC-PLAN.md wins — it's been refined by running into the
-actual gotchas.
+Phase C is staged as [`SONIC-PLAN.md`](SONIC-PLAN.md) Stages 0–4.
+Stages 0–3 + reconciler-lite applied 2026-05-22; Stage 4 (Netwatch +
+`advertise=` flip) pending. Where this doc and SONIC-PLAN differ on
+Phase C specifics, SONIC-PLAN wins.
 
 ## Risks
 
-- ~~`/ipv6 nd prefix` per-prefix `preferred-lifetime` override
-  syntax~~ **Resolved 2026-05-07** by probe 2 — works cleanly via
-  `set [find ...] preferred-lifetime=...`. Full-RA-replacement
-  fallback no longer needed.
-- **RA propagation latency** during failover — clients learn flipped
-  preference on the next RA. Tighten `min-rtr-adv-interval`
+- **`/ipv6 nd prefix` dynamic entries reject `set`.** The original
+  preferred-lifetime-bias mechanism doesn't work for from-pool-derived
+  prefixes; shipped design uses `advertise=yes/no` on `/ipv6 address`
+  instead. See probe 2 above and [`README.md`](README.md) Common
+  Pitfalls.
+- **RA propagation latency** during failover — clients learn the
+  `advertise=` flip on the next RA. Tighten `min-rtr-adv-interval`
   (15–30s) on the affected VLANs for faster recovery; don't go too
-  low or RA traffic itself becomes a noise source.
-- **Phase C bundles a lot.** v4 multi-WAN was the first half (now
-  Sonic Stage 2, applied 2026-05-22). v6 dual-GUA + Netwatch are
-  Stages 3 + 4.
-- **Scripted state.** The Netwatch RA-timer flip is the most stateful
-  bit in the design. Belt-and-suspenders: also include a periodic
-  reconciliation script that ensures timers match current WAN state
-  every N minutes, so a missed event doesn't leave the network in a
-  bad steady state.
+  low or RA traffic itself becomes noise.
+- **Scripted state.** Stage 4's Netwatch `advertise=` flip is the
+  most stateful bit. Belt-and-suspenders: a periodic reconciler
+  re-asserts `advertise=` from per-table route active state so a
+  missed Netwatch event doesn't leave the network in a bad steady
+  state. (Reconciler-lite already shipped for the `/routing rule` v6
+  src/dst entries 2026-05-22 — same pattern extended to `advertise=`
+  in Stage 4.)
 - **Firewall ordering:** Mistakes black-hole IPv6 or break ND; test
   from each SSID after changes.
 - **RouterOS schema:** Verify every `set`/`add` property on the

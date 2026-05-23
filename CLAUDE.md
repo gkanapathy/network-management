@@ -14,7 +14,7 @@ mikrotik-router/      # MikroTik rb5009 router — IaC-managed
   README.md           # workflow: how to apply, recover, and the gotchas hit so far
   config.rsc          # source of truth for the live router config
   IPV6-PLAN.md        # v6 design reference (Phases A + B-MB applied; Phase C is Sonic Stage 3)
-  SONIC-PLAN.md       # staged Sonic WAN buildout (Stages 0-3 applied; 4 remains)
+  SONIC-PLAN.md       # staged Sonic WAN buildout (Stages 0-3 + reconciler-lite applied; 4 remains)
   gkanapathy-mbpmx.pub  # admin SSH pubkey, imported on apply
   snapshots/          # single pre-Sonic baseline .rsc for deep cold-bootstrap fallback
 
@@ -69,17 +69,19 @@ router by hand — drift will get wiped on the next apply.
   apply in [mikrotik-router/SONIC-PLAN.md](mikrotik-router/SONIC-PLAN.md).
   Link-local recovery in `mikrotik-router/README.md` stays valid.
 - **Sonic WAN buildout** — Sonic line is live on `sfp-sfpplus1`
-  (Stages 0–3 applied 2026-05-21/22; Sonic delivers DHCP/IPoE with
-  IA_NA + IA_PD /56). Per-SSID PBR for both v4 and v6 is source-based
-  via `/routing rule` (Stage 2 v5 design, after mangle-based v1–v4
-  attempts all broke return traffic). Current routing — plumtree
-  (v4 + v6) → Sonic primary; guest/iot/mgmt (v4 + v6) → MB primary.
-  v6 uses a single-GUA-per-VLAN approach (both pools bound on every
-  VLAN so source-PBR can match, but only the primary pool is
-  `advertise=yes`) — this replaced the original `preferred-lifetime`
-  bias design after RouterOS 7.21.4 rejected `set` on dynamic
-  `/ipv6 nd prefix` entries. Trade-off: no dual-GUA safety net during
-  a single-WAN outage until Stage 4 lands. Staged rollout in
+  (Stages 0–3 + reconciler-lite applied 2026-05-21/22; Sonic delivers
+  DHCP/IPoE with IA_NA + IA_PD /56). Per-SSID PBR for both v4 and v6
+  is source-based via `/routing rule`. Current routing — plumtree
+  (v4 + v6) → Sonic primary; guest/iot/mgmt (v4 + v6) → MB primary;
+  `main` table → Sonic primary too (router-originated traffic + any
+  fall-through). v6 uses a single-GUA-per-VLAN approach (both pools
+  bound on every VLAN so source-PBR can match, but only the primary
+  pool is `advertise=yes`) — Trade-off: no dual-GUA safety net during
+  a single-WAN outage until Stage 4 lands. The PD-prefix /56 lives
+  only in the live DHCPv6 lease state, not in `config.rsc` — a
+  `v6-reconciler` script populates the `/routing rule` v6 src/dst
+  entries at runtime (boot-time `:execute` + 2 min scheduler tick).
+  Staged rollout in
   [mikrotik-router/SONIC-PLAN.md](mikrotik-router/SONIC-PLAN.md);
   remaining: Stage 4 Netwatch + advertise-flip on WAN-down.
 - **Diagnose Wi-Fi bufferbloat / latency under load on the EAPs.** Sustained

@@ -13,9 +13,10 @@ and re-apply.
 - `snapshots/` — single pre-Sonic baseline `.rsc` for deep
   cold-bootstrap fallback. Per-apply backups are taken locally
   but gitignored (`*.backup`).
-- `IPV6-PLAN.md` — v6 design reference (Phases A + B-MB applied;
-  Phase C is the Sonic Stage 3 work).
-- `SONIC-PLAN.md` — staged Sonic WAN buildout (Stages 0–2 applied).
+- `IPV6-PLAN.md` — v6 design reference. Phases A + B-MB applied;
+  Phase C is folded into the Sonic Stage buildout.
+- `SONIC-PLAN.md` — staged Sonic WAN buildout. Stages 0–3 +
+  reconciler-lite applied 2026-05-22; Stage 4 pending.
 
 ## Apply
 
