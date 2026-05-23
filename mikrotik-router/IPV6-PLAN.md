@@ -163,7 +163,7 @@ verification probe" below.)
   (`/routing rule`), not mangle mark-routing. See
   [`SONIC-PLAN.md`](SONIC-PLAN.md) Stage 2 for the live shape.
 
-### v6 layer — preferred/allowed via RA timers
+### v6 layer — per-VLAN single-GUA via `advertise=yes/no`
 
 - Add `/ipv6 dhcp-client` on `sfp-sfpplus1` mirroring `mb-pd`,
   `pool-name=sonic-pd`.
@@ -171,35 +171,35 @@ verification probe" below.)
   2026-05-21; see [`SONIC-PLAN.md`](SONIC-PLAN.md)).** Monkeybrains is
   PD-only — `accept-prefix-without-address=yes` is *required* there.
   Sonic delivers BOTH IA_NA and IA_PD: a literal GUA lands on
-  `sfp-sfpplus1` (observed `2001:5a8:601:2b::2:1ba2`, rotates on
-  lease) *in addition to* the delegated /56 (observed
-  `2001:5a8:6a4:d500::/56`). Both clients keep
-  `accept-prefix-without-address=yes` for shape parity — it's a no-op
-  on Sonic but mandatory on MB. The Sonic IA_NA address is not used
-  by the dual-GUA design (clients still SLAAC per-VLAN from the
-  delegated `/56`), but it gives the router a stable v6 source for
-  outbound on Sonic should we want one (e.g., source-pinned Netwatch
-  probes); MB has no equivalent, and from-router v6 sources on the
-  MB side come from per-VLAN GUAs or link-local.
-- Per VLAN, **two** `/ipv6 address from-pool=` entries: one
-  `from-pool=mb-pd`, one `from-pool=sonic-pd`. Both `advertise=yes`.
-- `/ipv6 nd prefix` per-prefix `preferred-lifetime` overrides:
-
-  | VLAN   | `mb-pd` preferred-lifetime | `sonic-pd` preferred-lifetime |
-  |--------|----------------------------|-------------------------------|
-  | vlan10 | `0` (deprecated)           | `7d` (preferred)              |
-  | vlan20 | `7d` (preferred)           | `0` (deprecated)              |
-  | vlan30 | `7d` (preferred)           | `0` (deprecated)              |
-  | vlan88 | `7d` (preferred)           | `0` (deprecated)              |
-
+  `sfp-sfpplus1` (in addition to the delegated /56). Both clients
+  keep `accept-prefix-without-address=yes` for shape parity — no-op
+  on Sonic but mandatory on MB.
+- Per VLAN, **two** `/ipv6 address from-pool=` entries (one per pool)
+  — but only the primary pool sets `advertise=yes`. Clients SLAAC
+  exactly one GUA per VLAN — the matching primary WAN's. No RFC 6724
+  source-bias needed; clients have no choice to make. Both /64s are
+  still bound on the interface so source-PBR matches outbound traffic
+  from either pool's address space (relevant for router-originated v6).
 - Source-PBR for v6: `/routing rule` matching on the delegated `/56`
-  per pool (same shape as v4 Stage 2 v5). **Mandatory, not a safety
-  net** — without it, a client sending from a non-preferred GUA gets
-  BCP38-dropped at the wrong WAN's upstream. See
-  [`SONIC-PLAN.md`](SONIC-PLAN.md) Stage 3 for the rule chain.
-- **Netwatch hook** — same probes as v4. On WAN-down: script flips the
-  per-prefix `preferred-lifetime` so clients move to the surviving GUA
-  on the next RA. On WAN-up: revert.
+  per pool (same shape as v4 Stage 2 v5). Without it a packet sourced
+  from one pool but routed to the other WAN gets BCP38-dropped
+  upstream.
+- **Netwatch hook (Stage 4)** — same probes as v4. On WAN-down: script
+  flips `advertise=yes/no` on the affected VLAN so the fallback pool's
+  GUA gets advertised; clients SLAAC the new GUA on the next RA. On
+  WAN-up: revert.
+
+**Earlier design — abandoned:** original Phase C plan was "advertise
+both pools per VLAN with `advertise=yes`, deprecate the non-primary
+via `/ipv6 nd prefix set [find ...] preferred-lifetime=0s` (script-
+driven)". The probe 2 finding below tested a *static* `/ipv6 nd
+prefix add` entry — but the entries derived from `/ipv6 address
+from-pool=...` are *dynamic*, and `set` on them fails ("can not
+change dynamic prefix"). The shipped design swaps the bias mechanism
+to `advertise=yes/no` on `/ipv6 address` itself. Trade-off: no
+dual-GUA safety net during a single-WAN outage until Stage 4 lands.
+A future revisit could use a static `/ipv6 nd prefix add` per VLAN
+per pool to restore the dual-GUA path; deferred.
 
 ### Per-protocol failover behavior (note the asymmetry)
 
@@ -218,13 +218,16 @@ verification probe" below.)
       different distances. **(Stage 2, 2026-05-22.)**
 - [x] v4 source-based PBR via `/routing rule`; `traceroute` from each
       VLAN shows expected first-hop ISP. **(Stage 2, 2026-05-22.)**
-- [ ] v6 dual-GUA per VLAN; `/ipv6 address print` shows both, only one
-      preferred per VLAN per RA. **(Stage 3.)**
+- [x] v6 per-VLAN single-GUA via `advertise=yes/no`; `/ipv6 address
+      print` shows both pools bound, only primary advertised.
+      **(Stage 3, 2026-05-22 — replaces the original "dual-GUA +
+      preferred-lifetime" design, see v6 layer section above.)**
 - [ ] Netwatch entries probing both WANs, scripts wired on up/down.
       **(Stage 4.)**
-- [ ] Pulling primary WAN cable: v4 traffic reroutes within Netwatch
-      probe window; v6 RAs flip `preferred-lifetime` and new flows use
-      surviving GUA within one RA interval. **(Stage 4.)**
+- [ ] Pulling primary WAN cable: v4 traffic reroutes within
+      `check-gateway` window; v6 RAs flip `advertise=` and new clients
+      SLAAC the surviving GUA within one Netwatch + RA interval.
+      **(Stage 4.)**
 
 (Phase C was always going to be a big bundle; in practice we split it
 into Sonic Stages 2–4. See [`SONIC-PLAN.md`](SONIC-PLAN.md).)

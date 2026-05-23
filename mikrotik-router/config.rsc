@@ -302,29 +302,35 @@ add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix
 # `address=` and `eui-64=` variants are INVALID). Clients SLAAC their own
 # GUAs; the router itself stays reachable on the per-VLAN ULA ::1 (Phase A)
 # and link-local. Re-derives automatically on renewal (probe 3).
+# --- Stage 3: dual-pool /64 per VLAN with advertise=yes/no biasing ---
+# Both pools are bound on every VLAN (prefix derived from `from-pool=`
+# so the /64 is in the routing table and source-PBR rules below match);
+# but ONLY ONE pool's prefix is advertised per VLAN via RA. Clients
+# therefore SLAAC just one GUA per VLAN — the matching primary WAN's —
+# and RFC 6724 source-address selection has only one global choice.
+#
+#   vlan10 (plumtree) -> sonic-pd advertised, mb-pd hidden
+#   vlan20 (guest)    -> mb-pd advertised, sonic-pd hidden
+#   vlan30 (iot)      -> mb-pd advertised, sonic-pd hidden
+#   vlan88 (mgmt)     -> mb-pd advertised, sonic-pd hidden
+#
+# This replaces the original "advertise both pools + preferred-lifetime
+# overrides" design that turned out impossible on 7.21.4 (`set` rejected
+# on dynamic /ipv6 nd prefix entries). The trade-off: no dual-GUA safety
+# net during a single-WAN outage — a VLAN whose primary WAN goes down
+# loses v6 entirely until Stage 4 (Netwatch) flips advertise on the
+# fallback pool. v4 failover via Stage 2 v5 is unaffected.
+# See SONIC-PLAN.md Stage 3 for the post-mortem and the
+# preferred-lifetime path we may revisit later.
 /ipv6 address
 add from-pool=mb-pd    interface=vlan88 advertise=yes
-add from-pool=mb-pd    interface=vlan10 advertise=yes
+add from-pool=mb-pd    interface=vlan10 advertise=no
 add from-pool=mb-pd    interface=vlan20 advertise=yes
 add from-pool=mb-pd    interface=vlan30 advertise=yes
-# --- Stage 3: parallel Sonic-pd /64 per VLAN ---
-# Both pools advertise on every VLAN; clients SLAAC one GUA per pool.
-# Routing per pool is via /routing rule source-PBR below (src in mb-pd
-# /56 -> mb table, src in sonic-pd /56 -> sonic table). Per-VLAN
-# preference biasing (which pool clients should prefer to source from)
-# is NOT yet implemented -- the natural mechanism (preferred-lifetime
-# overrides on /ipv6 nd prefix) doesn't work on 7.21.4 because the nd
-# prefix entries derived from /ipv6 address from-pool=... are dynamic
-# and reject `set` ("failure: can not change dynamic prefix"). Clients
-# currently pick a GUA per RFC 6724 + OS heuristics, which means traffic
-# splits arbitrarily between the two pools. Routing-wise it still works
-# (each pool's traffic egresses the right WAN), but the design intent
-# of "plumtree primary on Sonic, others primary on MB" isn't enforced
-# yet. See SONIC-PLAN.md Stage 3 for the discussion of alternatives.
-add from-pool=sonic-pd interface=vlan88 advertise=yes
+add from-pool=sonic-pd interface=vlan88 advertise=no
 add from-pool=sonic-pd interface=vlan10 advertise=yes
-add from-pool=sonic-pd interface=vlan20 advertise=yes
-add from-pool=sonic-pd interface=vlan30 advertise=yes
+add from-pool=sonic-pd interface=vlan20 advertise=no
+add from-pool=sonic-pd interface=vlan30 advertise=no
 
 # --- WAN default routes per routing table (Stage 2) ---
 # Six routes total (3 tables × 2 WANs):

@@ -244,6 +244,17 @@ re-stage of `gkanapathy-mbpmx.pub` applies here too.
   `/export` produces them but `/import` doesn't always accept them.
   Collapse to a single line; if it's truly unwieldy, split into multiple
   `set` calls with disjoint property sets.
+- **`/ipv6 nd prefix` entries derived from `/ipv6 address from-pool=`
+  are dynamic; `set` on them is rejected.** Attempting
+  `/ipv6 nd prefix set [find ...] preferred-lifetime=...` returns
+  `failure: can not change dynamic prefix`. Probe results that say
+  the override "works" likely tested a *static* `/ipv6 nd prefix add`
+  entry — a different code path. The 7.21.4 mechanism for biasing RA
+  on a from-pool interface is `/ipv6 address ... advertise=yes/no`
+  itself (which IS settable; Sonic Stage 3 ships this). If you need
+  a dynamic preferred-lifetime knob, the alternative is a static
+  `/ipv6 nd prefix add` per VLAN per pool — at the cost of having
+  to track prefix rotation manually for each entry.
 
 ## Sensitive material
 
