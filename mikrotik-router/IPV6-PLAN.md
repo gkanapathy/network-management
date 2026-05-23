@@ -65,35 +65,21 @@ specifics, SONIC-PLAN wins.
 
 ## Why pools, not literal prefixes
 
-Once `config.rsc` references a specific GUA `/64` (e.g. `2607:f598:d488:6188::1/64`),
-that string lives there until the next renewal — at which point the
-delegation may be a different prefix entirely, and the literal goes
-stale. The pool model (`/ipv6 pool` populated from the DHCP client,
-`/ipv6 address … from-pool=…`) lets RouterOS re-derive the address from
-whatever the lease currently is, without `config.rsc` edits. This
-matters because:
-
-- **Monkeybrains lease length is observed `/56` today** but ISPs change
-  delegation policy without warning.
-- **Sonic's eventual delegation length is unknown** (`/48`–`/64`).
-- **Renewal can change the prefix** even without a length change.
+`/ipv6 address … from-pool=…` re-derives the assigned /64 from
+whatever the dhcp-client currently has, without `config.rsc` edits.
+A literal `/64` hardcoded in `config.rsc` would go stale on any
+prefix rotation (ISPs are within their rights to change delegation
+on renewal). Both ISPs deliver `/56` today, but neither contract
+guarantees that across years.
 
 Trade-off: pool-derived `/64`s aren't human-stable across renewals
 (RouterOS picks them sequentially), so per-VLAN GUA AAAAs in `/ip dns
-static` would rot. Solution: publish only the ULA AAAA for `router.lan`
-(stable forever); skip GUA AAAAs.
+static` would rot. Resolution: publish only the ULA AAAA for
+`router.lan` (stable forever); skip GUA AAAAs.
 
-## Current baseline
-
-- IPv4 only on `vlan88` / `vlan10` / `vlan20` / `vlan30`; WAN is DHCP on
-  `ether2`.
-- `/ipv6 firewall` rules exist (defconf-style hardening at
-  `config.rsc:253–277`) but IPv6 is not actively addressed on LAN VLANs
-  and the inter-VLAN policy from IPv4 (`config.rsc:232–235`) is **not
-  yet mirrored into IPv6**.
-- Management services already allow `fe80::/10` in `address=` alongside
-  RFC1918 nets so **link-local SSH recovery** in [`README.md`](README.md)
-  stays valid.
+Where literals are unavoidable (`/routing rule` src/dst, `/ip route`
++ `/ipv6 route` gateways), the wan-reconciler updates them
+in-place — see [`SONIC-PLAN.md`](SONIC-PLAN.md).
 
 ## Phase A — ULA + IPv6 firewall parity (applied 2026-05-09)
 
@@ -238,72 +224,30 @@ per pool to restore the dual-GUA path; deferred.
 (Phase C was always going to be a big bundle; in practice we split it
 into Sonic Stages 2–4. See [`SONIC-PLAN.md`](SONIC-PLAN.md).)
 
-## Schema verification probe — 2026-05-07: completed
+## Schema verification probes — 2026-05-07
 
-Ran early (rather than between Phase B-MB and Phase C) to de-risk
-both phases before any of their config gets committed. Probe-then-
-revert on `vlan88` with `comment="probe-only-remove-after"`; pre/post
-`/export hide-sensitive` differed only by timestamp. All three probes
-used a temporary `/ipv6 dhcp-client` on `ether2` with
-`pool-name=mb-pd` (the same shape Phase B-MB will use).
+Three probe-then-revert investigations on `vlan88` (temporary
+`/ipv6 dhcp-client` with `pool-name=mb-pd`) before any of this design
+landed in `config.rsc`:
 
-### Probe 1 — `/ipv6 address from-pool=` syntax (Phase B-MB gate): finding — **prefix-only-to-interface**
-
-The originally-assumed form (`address=::1 from-pool=mb-pd`) is **not**
-how RouterOS 7.21.4 combines an interface-id with the pool prefix. It
-doesn't combine them at all. Forms tested:
-
-| Form                                                                       | Result                                              |
-|----------------------------------------------------------------------------|-----------------------------------------------------|
-| `add address=::1 from-pool=mb-pd interface=vlan88`                         | INVALID — literal `::1/64`, no pool prefix applied  |
-| `add address=::2 from-pool=mb-pd interface=vlan88`                         | INVALID — same                                      |
-| `add from-pool=mb-pd interface=vlan88 eui-64=yes`                          | INVALID — `::/64`, no IID computed                  |
-| `add from-pool=mb-pd interface=vlan88` (no `address=`)                     | **VALID** — `2607:f598:d488:6100::/64` on vlan88    |
-
-The valid form assigns the pool's `/64` to the VLAN as a network
-address. The router has no GUA host address from this entry; clients
-SLAAC; router-to-client reachability uses link-local (RA gateway) and
-the per-VLAN ULA `::1` from Phase A. Phase B-MB §2 above and the
-"Where to edit `config.rsc`" section below are written against this
-finding.
-
-### Probe 2 — `/ipv6 nd prefix` per-prefix `preferred-lifetime` (Phase C gate): finding — **works on static entries only**
-
-`add prefix=2607:f598:d488:6100::/64 interface=vlan88
-preferred-lifetime=0s` was accepted; subsequent `set` succeeded.
-
-**Limitation discovered at Stage 3 (2026-05-22):** the probe tested
-a *static* `/ipv6 nd prefix add` entry. The actual entries derived
-from `/ipv6 address from-pool=...` are *dynamic* (`D` flag) and
-reject `set` with `failure: can not change dynamic prefix`. So the
-original Phase C design — advertise both pools, deprecate one via
-preferred-lifetime override — turned out to be unimplementable as
-designed on 7.21.4. The shipped design uses `advertise=yes/no` on
-`/ipv6 address` instead.
-
-A future revisit could restore the dual-GUA path via 8 static `/ipv6
-nd prefix add` entries (4 VLANs × 2 pools) with computed /64 literals
-— at the cost of /64-rotation bookkeeping. Deferred.
-
-### Probe 3 — `/ipv6 dhcp-client renew` re-derivation (Phase B-MB gate): finding — **automatic**
-
-`renew [find pool-name=mb-pd]` refreshed the lease timer
-(2d23h59m40s → 2d23h59m55s) and the `from-pool=` address's `valid`
-and `preferred` timers tracked it (2d23h56m33s → 2d23h59m4s on
-`valid`; 2d16h44m33s → 2d16h47m4s on `preferred`). No manual
-intervention required.
-
-**Untested:** behavior when the ISP rotates the prefix (would need
-Monkeybrains to actually rotate, which can't be forced). Mechanism
-(`from-pool=` tracks the dhcp-client) should handle it transparently
-— the address re-derives from whatever new `/64` the pool ends up
-with.
-
-### Hygiene
-
-All probes used `comment="probe-only-remove-after"`. Removed before
-any `/export` was captured into `snapshots/`. Nothing landed in
-`config.rsc`.
+1. **`/ipv6 address from-pool=` semantics is prefix-only-to-interface.**
+   The forms `address=::1 from-pool=...`, `eui-64=yes`, etc. don't
+   combine an interface-id with the pool prefix — only
+   `add from-pool=mb-pd interface=vlan88` (no `address=`) is valid,
+   and it assigns the pool's `/64` to the VLAN as a network address.
+   Router has no GUA host address; clients SLAAC. Router reaches
+   them via ULA + link-local.
+2. **`/ipv6 nd prefix preferred-lifetime` override works on static
+   entries.** Caveat discovered at Stage 3: the entries auto-derived
+   from `from-pool=` are *dynamic* and reject `set`. The shipped
+   design works around it via `advertise=yes/no` on `/ipv6 address`.
+   See [`LESSONS.md`](LESSONS.md).
+3. **`/ipv6 dhcp-client renew` re-derives `from-pool=` addresses
+   automatically.** Lease timer refreshes; the address's valid and
+   preferred timers track it; no manual intervention. Untested with
+   actual prefix rotation (couldn't force the ISP to rotate). The
+   wan-reconciler covers the rotation case anyway by re-reading
+   `/ipv6 pool` on every script invocation.
 
 ## Edge cases by parent-prefix length
 
@@ -333,27 +277,20 @@ Phase C specifics, SONIC-PLAN wins.
 
 ## Risks
 
-- **`/ipv6 nd prefix` dynamic entries reject `set`.** The original
-  preferred-lifetime-bias mechanism doesn't work for from-pool-derived
-  prefixes; shipped design uses `advertise=yes/no` on `/ipv6 address`
-  instead. See probe 2 above and [`README.md`](README.md) Common
-  Pitfalls.
 - **RA propagation latency** during failover — clients learn the
   `advertise=` flip on the next RA. Tighten `min-rtr-adv-interval`
   (15–30s) on the affected VLANs for faster recovery; don't go too
   low or RA traffic itself becomes noise.
 - **Scripted state.** Stage 4's Netwatch `advertise=` flip is the
-  most stateful bit. Belt-and-suspenders: a periodic reconciler
-  re-asserts `advertise=` from per-table route active state so a
-  missed Netwatch event doesn't leave the network in a bad steady
-  state. (Reconciler-lite already shipped for the `/routing rule` v6
-  src/dst entries 2026-05-22 — same pattern extended to `advertise=`
-  in Stage 4.)
+  most stateful piece pending. Belt-and-suspenders pattern: extend
+  the wan-reconciler to re-assert `advertise=` from per-table route
+  active state so a missed Netwatch event doesn't leave the network
+  in a bad steady state (same pattern already shipped for the
+  `/routing rule` and route-gateway reconciliation).
 - **Firewall ordering:** Mistakes black-hole IPv6 or break ND; test
   from each SSID after changes.
-- **RouterOS schema:** Verify every `set`/`add` property on the
-  running version before relying on it in `config.rsc` (see README
-  "Common pitfalls").
+- **RouterOS schema gotchas** — see [`README.md`](README.md) Common
+  pitfalls and [`LESSONS.md`](LESSONS.md).
 
 ## Out of scope
 

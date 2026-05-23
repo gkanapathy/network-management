@@ -27,15 +27,12 @@ set name=plumtree-rtr
 
 # --- IP-stack hardening ---
 # Defconf doesn't touch /ip settings; defaults are too lax. rp-filter
-# is `loose` (not strict) because we have legitimate asymmetric routing
-# now: guest/iot/mgmt VLANs egress MB via the `mb` table while `main`
-# defaults to Sonic, so the per-table reverse path doesn't always match
-# the ingress interface. Loose still catches packets whose src isn't
-# reachable via ANY of our interfaces (the anti-spoof / bogon role); it
-# just doesn't require src to be reachable via the SAME interface.
-# Strict was empirically working (conntrack-bypass on established
-# flows was masking the mismatch -- probed 2026-05-23) but loose
-# aligns the config with the actual multi-WAN reality.
+# is `loose` (not strict) because per-VLAN PBR + main=Sonic creates
+# legitimate asymmetric routing (guest/iot/mgmt egress via mb while
+# main defaults to Sonic). Loose still catches src-not-reachable-via-
+# any-interface (anti-spoof / bogon role); it just doesn't require
+# src reachable via the SAME interface. See LESSONS.md for the
+# probe-based rationale.
 /ip settings
 set rp-filter=loose tcp-syncookies=yes send-redirects=no
 
@@ -263,17 +260,11 @@ add interface=ether2 list=WAN
 add interface=sfp-sfpplus1 list=WAN
 
 # --- routing tables for Stage 2 source-based PBR ---
-# mb and sonic are selected by /routing rule (below) based on src-address
-# per LAN VLAN. Each table carries both 0.0.0.0/0 entries (local WAN d=1,
-# other WAN d=2) so a WAN failure falls through within the table.
-# `fib` is a flag (not `fib=yes`) in RouterOS 7.21.4 — the assignment
-# form parses as "expected end of command" and aborts the import.
-# (Historically that aborted-mid-import locked us out by skipping the
-# vlan-filtering=yes line that used to sit at the bottom of this file;
-# that line has since moved up to after /ip service for partial-apply
-# lockout safety, so this failure mode is less severe, but still
-# avoid.) Discovered 2026-05-21 after two failed Stage 2 apply
-# attempts.
+# mb and sonic are selected by /routing rule (below) based on
+# src-address per LAN VLAN. Each table carries both 0.0.0.0/0 entries
+# (local WAN d=1, other WAN d=2) so a WAN failure falls through within
+# the table. `fib` is a FLAG here, not `fib=yes` — the property form
+# aborts the import (see README pitfalls).
 /routing table
 add name=mb    fib
 add name=sonic fib
@@ -367,20 +358,14 @@ set winbox address=192.168.88.0/24,192.168.10.0/24,fe80::/10
 set www    address=192.168.88.0/24,192.168.10.0/24,fe80::/10
 
 # --- enable VLAN filtering (early; lockout-safety on partial apply) ---
-# Hard prereq is /interface bridge vlan above (lines 107-111), which
-# populates the per-port-per-VID table that vlan-filtering enforces.
-# Once that's set, the bridge is safe to switch into filtering mode.
+# Hard prereq is /interface bridge vlan above, which populates the
+# per-port-per-VID table that vlan-filtering enforces.
 #
-# This line used to live at the very END of config.rsc. Moved here on
-# 2026-05-22: if a later block (DHCP, firewall, /routing rule,
-# /system script, ...) errors during /import and aborts the script,
-# the bridge would otherwise stay in legacy no-VLAN-tag mode, locking
-# plumtree clients out of the router. Anchoring vlan-filtering=yes
-# right after /ip address + /ip ssh + /ip service means SSH-via-LAN-IP
-# survives partial applies, so the next "diagnose via /log/print, fix
-# config.rsc, re-apply" cycle doesn't need a button-reset cold
-# bootstrap. Cost two such recoveries during the Stage 2 buildout
-# before this moved up.
+# Anchored here (right after /ip address + /ip ssh + /ip service)
+# rather than at the end of config.rsc, so that if a later block
+# errors during /import and aborts the script, SSH-via-LAN-IP still
+# works — the next "diagnose, fix, re-apply" cycle doesn't need a
+# button-reset cold bootstrap.
 /interface bridge
 set [find name=bridge] vlan-filtering=yes
 
@@ -440,33 +425,24 @@ add interface=sfp-sfpplus1 add-default-route=no use-peer-dns=yes script="/system
 add interface=ether2       request=address,prefix pool-name=mb-pd    pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no script="/system script run wan-reconciler"
 add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no script="/system script run wan-reconciler"
 
-# --- IPv6 GUA per VLAN, from the Monkeybrains pool (Phase B-MB) ---
-# RouterOS 7.21.4 `from-pool=` semantics is prefix-only-to-interface: the
-# pool's /64 is assigned to the VLAN as a network address for RA emission;
-# the router gets NO host address from this entry (probe 1 confirmed several
-# `address=` and `eui-64=` variants are INVALID). Clients SLAAC their own
-# GUAs; the router itself stays reachable on the per-VLAN ULA ::1 (Phase A)
-# and link-local. Re-derives automatically on renewal (probe 3).
-# --- Stage 3: dual-pool /64 per VLAN with advertise=yes/no biasing ---
-# Both pools are bound on every VLAN (prefix derived from `from-pool=`
-# so the /64 is in the routing table and source-PBR rules below match);
-# but ONLY ONE pool's prefix is advertised per VLAN via RA. Clients
-# therefore SLAAC just one GUA per VLAN — the matching primary WAN's —
-# and RFC 6724 source-address selection has only one global choice.
+# --- IPv6 GUA per-VLAN from DHCPv6-PD pools (Phase B-MB + Stage 3) ---
+# from-pool= on 7.21.4 is prefix-only-to-interface: the pool's /64 is
+# bound to the VLAN as a network address (for RA emission and routing);
+# the router itself has no host GUA on the interface. Clients SLAAC
+# their own GUAs; router stays reachable via per-VLAN ULA ::1 (Phase A)
+# and link-local. /64 re-derives automatically on lease renewal.
 #
+# Both pools bound on every VLAN so source-PBR can match either /64,
+# but advertise=yes ONLY on the primary pool per VLAN -- clients SLAAC
+# exactly one GUA per VLAN (the matching primary WAN's). Per-VLAN
+# policy:
 #   vlan10 (plumtree) -> sonic-pd advertised, mb-pd hidden
-#   vlan20 (guest)    -> mb-pd advertised, sonic-pd hidden
-#   vlan30 (iot)      -> mb-pd advertised, sonic-pd hidden
-#   vlan88 (mgmt)     -> mb-pd advertised, sonic-pd hidden
+#   vlan20/30/88      -> mb-pd advertised, sonic-pd hidden
 #
-# This replaces the original "advertise both pools + preferred-lifetime
-# overrides" design that turned out impossible on 7.21.4 (`set` rejected
-# on dynamic /ipv6 nd prefix entries). The trade-off: no dual-GUA safety
-# net during a single-WAN outage — a VLAN whose primary WAN goes down
-# loses v6 entirely until Stage 4 (Netwatch) flips advertise on the
-# fallback pool. v4 failover via Stage 2 v5 is unaffected.
-# See SONIC-PLAN.md Stage 3 for the post-mortem and the
-# preferred-lifetime path we may revisit later.
+# Trade-off: no dual-GUA safety net during a single-WAN outage until
+# Stage 4 flips advertise= on the fallback pool. The original Phase C
+# plan (advertise both, deprecate via preferred-lifetime) wasn't
+# implementable on 7.21.4 -- see LESSONS.md.
 /ipv6 address
 add from-pool=mb-pd    interface=vlan88 advertise=yes
 add from-pool=mb-pd    interface=vlan10 advertise=no
@@ -498,31 +474,17 @@ add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=sonic distance=1 
 add dst-address=0.0.0.0/0 gateway=162.217.74.129 routing-table=sonic distance=2                    comment="auto-v4-route-sonic-sec-mb"
 
 # --- routing rules for per-VLAN source-based PBR (Stage 2) ---
-# Source-based PBR via /routing rule, NOT mangle mark-routing. The
-# mangle-based approach we tried first failed because:
-#  - RouterOS 7.x has no implicit fallback from a custom table to main,
-#    and no longest-prefix-match across tables.
-#  - When mangle set routing-mark=sonic on a plumtree outbound packet,
-#    the reply packet (NAT-reversed dst=192.168.10.x) was also routed
-#    via the sonic table (conntrack carries the mark forward), which
-#    only has 0.0.0.0/0; the reply egressed back out Sonic with a
-#    private-IP destination and was dropped upstream. Mac never saw
-#    replies. Adding LAN connected routes to mb/sonic didn't fix it
-#    (suspect: scope/target-scope mismatch vs main's connected route).
-#    Cost three Stage 2 apply attempts + cold-bootstrap recoveries.
-#
-# Source-based PBR sidesteps the whole question:
-#  - Rule 1: dst in 192.168.0.0/16 -> main. This catches reply traffic
-#    (dst = LAN client) AND inter-VLAN traffic BEFORE the per-VLAN src
-#    rules fire. Reply packets naturally route to vlan10 via main's
-#    connected route. No conntrack-stickiness because routing-mark is
-#    never set.
-#  - Rules 2-5: per-VLAN src -> table. Outbound LAN-to-WAN traffic
-#    matches src, gets steered to the right table. Replies don't match
-#    (they come from external src), so they bypass these rules
-#    and fall through to main.
-# Validated 2026-05-22 via live probe: plumtree -> Sonic and reply ->
-# Mac, with LAN-to-router and inter-VLAN traffic intact.
+# Source-based PBR via /routing rule, NOT mangle mark-routing (see
+# LESSONS.md for the retrospective on why mangle is a trap on 7.x).
+# Order matters:
+#  - Rule 1 (dst=LAN supernet -> main) catches reply traffic and
+#    inter-VLAN before the per-VLAN src rules fire. Reply packets
+#    route to LAN via main's connected routes; no conntrack
+#    stickiness because routing-mark is never set.
+#  - Rules 2-5 (per-VLAN src -> table) steer outbound LAN-to-WAN
+#    traffic to the right table. Replies don't match (their src is
+#    the external endpoint) so they bypass these rules and fall
+#    through to main.
 /routing rule
 add dst-address=192.168.0.0/16  action=lookup table=main  comment="LAN dsts -> main (catches reply + inter-VLAN before src rules)"
 add src-address=192.168.10.0/24 action=lookup table=sonic comment="plumtree -> sonic"

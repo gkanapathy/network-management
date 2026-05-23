@@ -125,38 +125,20 @@ rejects `set` on dynamic prefix entries (Stage 3 post-mortem). The
 - Reconciler self-heal: manually misset `advertise=` on one entry;
   wait the 10 min reconciler tick; confirm restoration.
 
-## Stages 0–3 — history (collapsed)
+## Stages 0–3 — applied 2026-05-21/22
 
-Detail lives in `config.rsc` comments; what's worth preserving:
-
-- **Stage 0 probes (2026-05-21)** captured Sonic delivery shape:
-  DHCP/IPoE with IA_NA + IA_PD /56, v4 next-hop `23.93.120.1`, v6
-  upstream LL `fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1`, 6h lease.
-  Also: 7.21.4 has `default-route-distance` / `default-route-tables`
-  on `/ipv6 dhcp-client` (both single-value); `add-default-route`
-  defaults to `no` on v6 (unlike v4); `default-route-tables=default`
-  maps to `main`.
-- **Stage 1 (2026-05-21)** bound Sonic as passive secondary.
-  Failover/recovery converges in ~6s for v4 + v6; cable-pull recovery
-  ~2s. Sonic upstream BCP38-drops foreign-source v6 packets (motivated
-  Stage 3's source-PBR as mandatory, not safety-net).
-- **Stage 2 (2026-05-22)** v4 source-based PBR via `/routing rule`.
-  Took five iterations: v1–v4 used `/ip firewall mangle mark-routing`
-  and all broke return traffic, because (a) 7.x has no LPM across
-  tables and no fallback to main, and (b) conntrack carries the
-  routing-mark to reply direction. Source-based `/routing rule` (v5)
-  never sets a mark; reply packets bypass the rules and fall through
-  to `main` where connected LAN routes always worked. Generalized
-  lesson in [`README.md`](README.md) § Common Pitfalls.
-- **Stage 3 (2026-05-22)** v6 source-based PBR + single-GUA-per-VLAN.
-  Original "dual-GUA + `/ipv6 nd prefix` preferred-lifetime" design
-  failed because dynamic prefix entries reject `set` on 7.21.4.
-  Switched to `advertise=yes/no` on `/ipv6 address` itself.
+Live state is `config.rsc`; the git log captures the apply sequence
+per stage. For the design decisions, dead-ends, and architectural
+lessons that drove the shipped shape (mangle-vs-source-PBR pivot,
+dynamic prefix `set` constraint, BCP38 on foreign-source v6), see
+[`LESSONS.md`](LESSONS.md).
 
 ## Critical files
 
 - [`config.rsc`](config.rsc) — source of truth for the live router.
 - [`IPV6-PLAN.md`](IPV6-PLAN.md) § Phase C — parent design doc for the
   v6 multi-WAN model.
-- [`README.md`](README.md) § Common Pitfalls — generalized lessons
-  across all stages.
+- [`README.md`](README.md) § Common pitfalls — schema-level gotchas
+  to know about when editing config.rsc.
+- [`LESSONS.md`](LESSONS.md) — architectural lessons learned during
+  the buildout.

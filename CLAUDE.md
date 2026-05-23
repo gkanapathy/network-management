@@ -11,10 +11,11 @@ omada-controller/     # all Omada-controller setups
     backups/          # controller .cfg backup files
 
 mikrotik-router/      # MikroTik rb5009 router — IaC-managed
-  README.md           # workflow: how to apply, recover, and the gotchas hit so far
+  README.md           # workflow: how to apply, recover, schema-level gotchas
   config.rsc          # source of truth for the live router config
   IPV6-PLAN.md        # v6 design reference (Phases A + B-MB applied; Phase C is Sonic Stage 3)
   SONIC-PLAN.md       # staged Sonic WAN buildout (Stages 0-3 + wan-reconciler applied; 4 remains)
+  LESSONS.md          # architectural lessons learned during the buildout
   gkanapathy-mbpmx.pub  # admin SSH pubkey, imported on apply
   snapshots/          # single pre-Sonic baseline .rsc for deep cold-bootstrap fallback
 

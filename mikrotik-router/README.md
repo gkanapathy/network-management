@@ -17,6 +17,8 @@ and re-apply.
   Phase C is folded into the Sonic Stage buildout.
 - `SONIC-PLAN.md` — staged Sonic WAN buildout. Stages 0–3 +
   wan-reconciler applied 2026-05-22; Stage 4 pending.
+- `LESSONS.md` — architectural lessons learned during the buildout
+  (RouterOS 7.x gotchas, design dead-ends, generalizable patterns).
 
 ## Apply
 
@@ -211,51 +213,21 @@ re-stage of `gkanapathy-mbpmx.pub` applies here too.
     explicitly. Setting `default-route-distance=N` alone is not
     enough — the property is suppressed in `print detail` output
     when `add-default-route=no`, which makes the omission silent.
-  - **Mangle `mark-routing` for per-source PBR is a trap on 7.21.4.**
-    Two related issues we hit during the Sonic Stage 2 buildout
-    (2026-05-21..22):
-    (a) RouterOS 7.x has **no longest-prefix-match across routing
-        tables** and **no implicit fallback** from a custom table to
-        `main`. Once a packet has `routing-mark=X`, only table `X` is
-        searched. So a LAN-destined packet from a marked source VLAN
-        (DNS to router, inter-VLAN, etc.) egresses whichever WAN the
-        marked table points at, gets masqueraded, and is dropped
-        upstream with a private-IP dst.
-    (b) Conntrack carries the routing-mark from the initial direction
-        to the reply direction. So even if you avoid (a) by scoping the
-        mark to WAN-bound traffic, reply packets *also* end up with the
-        mark, route via the custom table, and egress back out the WAN
-        instead of to the LAN client. Conntrack shows `SEEN-REPLY
-        orig-packets=N repl-packets=N` for every flow that times out at
-        the client.
-    Adding LAN-connected routes to the custom tables (so LPM within
-    the table catches LAN dsts) didn't reliably work either — static
-    routes end up with `scope=30 target-scope=10` (vs `scope=10
-    target-scope=5` on `main`'s connected routes), and the LPM didn't
-    appear to use the static entry. **Solution: use `/routing rule`
-    source-based PBR instead.** A source-based rule sets no
-    routing-mark; reply packets bypass the rule because their src is
-    the remote endpoint, falling through to `main`. Put a
-    `dst-address=192.168.0.0/16 action=lookup table=main` rule *first*
-    in the chain so inter-VLAN and LAN-to-router traffic stays in
-    `main` too. Diagnosis trick: disable the mangle `mark-routing`
-    rules; if the client recovers immediately, you're hitting this.
+  - **Mangle `mark-routing` for per-source PBR is a trap on 7.x.**
+    Use `/routing rule` source-based PBR with a `dst=<LAN supernet>`
+    priority rule first. Full retrospective with diagnosis trick in
+    [`LESSONS.md`](LESSONS.md).
 - **Avoid `\` line-continuation in `set` blocks.** RouterOS's `/import`
   parser sometimes rejects continuation across long property lists.
   `/export` produces them but `/import` doesn't always accept them.
   Collapse to a single line; if it's truly unwieldy, split into multiple
   `set` calls with disjoint property sets.
 - **`/ipv6 nd prefix` entries derived from `/ipv6 address from-pool=`
-  are dynamic; `set` on them is rejected.** Attempting
-  `/ipv6 nd prefix set [find ...] preferred-lifetime=...` returns
-  `failure: can not change dynamic prefix`. Probe results that say
-  the override "works" likely tested a *static* `/ipv6 nd prefix add`
-  entry — a different code path. The 7.21.4 mechanism for biasing RA
-  on a from-pool interface is `/ipv6 address ... advertise=yes/no`
-  itself (which IS settable; Sonic Stage 3 ships this). If you need
-  a dynamic preferred-lifetime knob, the alternative is a static
-  `/ipv6 nd prefix add` per VLAN per pool — at the cost of having
-  to track prefix rotation manually for each entry.
+  are dynamic; `set` on them is rejected** with `failure: can not
+  change dynamic prefix`. Static `/ipv6 nd prefix add` entries accept
+  `set`; the dynamic auto-derived ones don't. RA biasing on a
+  from-pool interface uses `/ipv6 address ... advertise=yes/no`
+  instead. Background in [`LESSONS.md`](LESSONS.md).
 
 ## Sensitive material
 
