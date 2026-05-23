@@ -142,9 +142,12 @@ verification probe" below.)
 - **Routing tables** — one per ISP (`mb`, `sonic`), each carrying that
   WAN's default route plus the other WAN at higher distance for
   fallthrough on primary failure.
-- **Mangle marks** — `/ip firewall mangle` and `/ipv6 firewall mangle`
-  mark connections by source VLAN (and for v6, by source prefix as a
-  safety net) and route via the appropriate table.
+- **`/routing rule` source-based PBR** — per-VLAN source matches for
+  v4 (LAN subnets) and per-pool source matches for v6 (delegated /56s).
+  A `dst=LAN -> main` priority rule catches reply traffic and
+  inter-VLAN traffic before the source rules fire. NOT `/ipv6 firewall
+  mangle` — see [`SONIC-PLAN.md`](SONIC-PLAN.md) Stage 2 post-mortem
+  for why mangle `mark-routing` doesn't work on 7.21.4.
 
 ### v4 layer — primary/secondary
 
@@ -189,10 +192,11 @@ verification probe" below.)
   | vlan30 | `7d` (preferred)           | `0` (deprecated)              |
   | vlan88 | `7d` (preferred)           | `0` (deprecated)              |
 
-- Source-PBR for v6: marks on **source-prefix** instead of
-  in-interface, mechanically identical to v4 PBR. Acts as a safety net
-  so non-preferred GUAs (still valid for inbound, not yet expired)
-  don't trigger BCP38 / asymmetric routing if a client uses one.
+- Source-PBR for v6: `/routing rule` matching on the delegated `/56`
+  per pool (same shape as v4 Stage 2 v5). **Mandatory, not a safety
+  net** — without it, a client sending from a non-preferred GUA gets
+  BCP38-dropped at the wrong WAN's upstream. See
+  [`SONIC-PLAN.md`](SONIC-PLAN.md) Stage 3 for the rule chain.
 - **Netwatch hook** — same probes as v4. On WAN-down: script flips the
   per-prefix `preferred-lifetime` so clients move to the surviving GUA
   on the next RA. On WAN-up: revert.
@@ -210,25 +214,20 @@ verification probe" below.)
 
 - [x] Probe 2 (`/ipv6 nd prefix` per-prefix preferred-lifetime override)
       confirmed (2026-05-07; see "Schema verification probe" below).
-- [ ] Netwatch entries probing both WANs, scripts wired on up/down.
-- [ ] Routing tables `mb` and `sonic` each carry both default routes,
-      different distances.
-- [ ] v4 PBR mangle rules per VLAN; `traceroute` from each VLAN shows
-      expected first-hop ISP.
+- [x] Routing tables `mb` and `sonic` each carry both default routes,
+      different distances. **(Stage 2, 2026-05-22.)**
+- [x] v4 source-based PBR via `/routing rule`; `traceroute` from each
+      VLAN shows expected first-hop ISP. **(Stage 2, 2026-05-22.)**
 - [ ] v6 dual-GUA per VLAN; `/ipv6 address print` shows both, only one
-      preferred per VLAN per RA.
+      preferred per VLAN per RA. **(Stage 3.)**
+- [ ] Netwatch entries probing both WANs, scripts wired on up/down.
+      **(Stage 4.)**
 - [ ] Pulling primary WAN cable: v4 traffic reroutes within Netwatch
       probe window; v6 RAs flip `preferred-lifetime` and new flows use
-      surviving GUA within one RA interval.
+      surviving GUA within one RA interval. **(Stage 4.)**
 
-### Optional split
-
-If the apply window is too long, split Phase C:
-
-- **C-v4**: dual-WAN PBR routing first (`/ip` only). v6 stays on
-  Phase B-MB.
-- **C-v6**: dual-GUA layered on top of working PBR. Reuses the same
-  Netwatch + routing-table scaffolding.
+(Phase C was always going to be a big bundle; in practice we split it
+into Sonic Stages 2–4. See [`SONIC-PLAN.md`](SONIC-PLAN.md).)
 
 ## Schema verification probe — 2026-05-07: completed
 

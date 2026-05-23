@@ -303,10 +303,28 @@ add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix
 # GUAs; the router itself stays reachable on the per-VLAN ULA ::1 (Phase A)
 # and link-local. Re-derives automatically on renewal (probe 3).
 /ipv6 address
-add from-pool=mb-pd interface=vlan88 advertise=yes
-add from-pool=mb-pd interface=vlan10 advertise=yes
-add from-pool=mb-pd interface=vlan20 advertise=yes
-add from-pool=mb-pd interface=vlan30 advertise=yes
+add from-pool=mb-pd    interface=vlan88 advertise=yes
+add from-pool=mb-pd    interface=vlan10 advertise=yes
+add from-pool=mb-pd    interface=vlan20 advertise=yes
+add from-pool=mb-pd    interface=vlan30 advertise=yes
+# --- Stage 3: parallel Sonic-pd /64 per VLAN ---
+# Both pools advertise on every VLAN; clients SLAAC one GUA per pool.
+# Routing per pool is via /routing rule source-PBR below (src in mb-pd
+# /56 -> mb table, src in sonic-pd /56 -> sonic table). Per-VLAN
+# preference biasing (which pool clients should prefer to source from)
+# is NOT yet implemented -- the natural mechanism (preferred-lifetime
+# overrides on /ipv6 nd prefix) doesn't work on 7.21.4 because the nd
+# prefix entries derived from /ipv6 address from-pool=... are dynamic
+# and reject `set` ("failure: can not change dynamic prefix"). Clients
+# currently pick a GUA per RFC 6724 + OS heuristics, which means traffic
+# splits arbitrarily between the two pools. Routing-wise it still works
+# (each pool's traffic egresses the right WAN), but the design intent
+# of "plumtree primary on Sonic, others primary on MB" isn't enforced
+# yet. See SONIC-PLAN.md Stage 3 for the discussion of alternatives.
+add from-pool=sonic-pd interface=vlan88 advertise=yes
+add from-pool=sonic-pd interface=vlan10 advertise=yes
+add from-pool=sonic-pd interface=vlan20 advertise=yes
+add from-pool=sonic-pd interface=vlan30 advertise=yes
 
 # --- WAN default routes per routing table (Stage 2) ---
 # Six routes total (3 tables × 2 WANs):
@@ -359,6 +377,21 @@ add src-address=192.168.10.0/24 action=lookup table=sonic comment="plumtree -> s
 add src-address=192.168.20.0/24 action=lookup table=mb    comment="guest -> mb"
 add src-address=192.168.30.0/24 action=lookup table=mb    comment="iot -> mb"
 add src-address=192.168.88.0/24 action=lookup table=mb    comment="mgmt -> mb"
+# --- Stage 3: v6 source-based PBR per pool ---
+# Same shape as v4 above: dst-LAN priority catches reply traffic, then
+# per-pool src rules steer outbound. /routing rule on 7.21.4 takes
+# literal CIDR only (no src-address-list, so we can't reference an
+# address-list dynamically populated by prefix-address-lists). The
+# Sonic-pd /56 below MAY need an update if a future apply causes Sonic
+# to delegate a different /56 -- DHCPv6 routine renewal keeps the same
+# /56 because our DUID is stable (driven by bridge admin-mac), but a
+# wipe-and-replay that recreates the v6 dhcp-client can get a new /56.
+# Check via: /ipv6 dhcp-client get [find pool-name=sonic-pd] prefix
+add dst-address=fd7f:aee1:6ce0::/48      action=lookup table=main  comment="v6 ULA LAN dsts -> main"
+add dst-address=2607:f598:d488:6100::/56 action=lookup table=main  comment="v6 MB-pd LAN dsts -> main"
+add dst-address=2001:5a8:6a5:4600::/56   action=lookup table=main  comment="v6 Sonic-pd LAN dsts -> main (UPDATE if PD rotates)"
+add src-address=2607:f598:d488:6100::/56 action=lookup table=mb    comment="v6 MB-pd src -> mb"
+add src-address=2001:5a8:6a5:4600::/56   action=lookup table=sonic comment="v6 Sonic-pd src -> sonic (UPDATE if PD rotates)"
 
 # --- v6 default routes per routing table (Stage 2) ---
 # Same shape as /ip route above; gateways are the upstream link-locals

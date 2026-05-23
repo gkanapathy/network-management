@@ -141,9 +141,30 @@ password — **not** empty. To regain SSH access:
    pre-Sonic baseline (`*-post-key-refactor.rsc`) as a deeper fallback
    if HEAD itself is in a broken state.
 
+4. **(Stage 4 prerequisite, not Stage 3.)** Cold-bootstrap also resets
+   `/system device-mode` to its factory default (`scheduler: no`),
+   which blocks `/system scheduler add`. Stage 3 as-shipped doesn't
+   use the scheduler (the original preferred-lifetime-override design
+   was abandoned when we found dynamic `/ipv6 nd prefix` entries
+   reject `set` on 7.21.4), so a cold-bootstrap recovery applies
+   `config.rsc` cleanly without this step. **Stage 4** (Netwatch
+   failover automation) WILL need scheduler; when Stage 4 lands, add
+   this step after the apply above:
+
+   ```fish
+   ssh admin@192.168.88.1 '/system routerboard reset-button set enabled=no'   # defensive: prevent toggle-leds tap from racing
+   ssh admin@192.168.88.1 '/system device-mode update scheduler=yes'
+   # Router prints "press button to confirm in Nm Ys"; press the reset
+   # button briefly within that window. Router reboots into permissive
+   # mode. After it's back:
+   ssh admin@192.168.88.1 '/system routerboard reset-button set enabled=yes'  # restore the hook
+   ssh admin@192.168.88.1 '/system reset-configuration no-defaults=yes skip-backup=yes keep-users=yes run-after-reset=config.rsc'   # re-apply
+   ```
+
 This means a button reset always requires physical access to the router
-plus a manual login step. Prefer the IPv6 link-local recovery above when
-possible — it skips this dance.
+plus a manual login step (plus the device-mode dance once Stage 4 lands).
+Prefer the IPv6 link-local recovery above when possible — it skips all
+of this.
 
 ### Last resort: netinstall — cold bootstrap
 

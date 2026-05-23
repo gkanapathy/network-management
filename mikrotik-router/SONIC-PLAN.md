@@ -22,7 +22,7 @@ flowchart TD
     S0["Stage 0 (pre-apply): live-router schema probes<br/>verify ipv6 dhcp-client default-route-distance,<br/>routing-mark+connection-mark interaction with fasttrack,<br/>check-gateway behavior. Capture Sonic PD length + gateway facts."]
     S1["Stage 1: Sonic as PASSIVE secondary<br/>+ ipv6 dhcp-client sonic-pd, +ip dhcp-client sfp-sfpplus1<br/>+sfp-sfpplus1 to WAN list<br/>NO per-VLAN PBR, NO sonic-pd /64s on VLANs"]
     S2["Stage 2: v4 per-SSID PBR (source-based)<br/>+routing tables mb, sonic<br/>+manual 0.0.0.0/0 routes per table (distance 1 & 2)<br/>+manual ::/0 routes per table<br/>+/routing rule (dst-LAN priority + per-VLAN src)<br/>Both DHCP clients switch to add-default-route=no"]
-    S3["Stage 3: v6 dual-GUA + source-PBR<br/>+ipv6 address from-pool=sonic-pd per VLAN<br/>+ipv6 nd prefix preferred-lifetime overrides<br/>+ipv6 firewall mangle (src-address PBR)"]
+    S3["Stage 3: v6 dual-GUA + source-PBR<br/>+ipv6 address from-pool=sonic-pd per VLAN<br/>+/routing rule v6 chain (dst-LAN + per-pool src)<br/>(per-VLAN preferred-pool biasing deferred; see post-mortem)"]
     S4["Stage 4: Netwatch + RA-timer flip<br/>+netwatch mb-probe, sonic-probe (per-table)<br/>+scripts mb-up/down, sonic-up/down<br/>+scheduler reconcile from route state<br/>tighten min-rtr-adv-interval"]
     Verify1["Verify: MB still primary on all SSIDs.<br/>Pull MB: Sonic active. v6 degraded (no sonic-pd GUAs yet) — expected."]
     Verify2["Verify: plumtree v4 egresses Sonic; others MB.<br/>Pull either WAN: per-SSID fall-through within check-gateway window."]
@@ -44,10 +44,14 @@ points reused below — don't restate the model, only deltas.
   `0.0.0.0/0` with local WAN d=1, other WAN d=2.
 - v4 PBR: per-VLAN source via `/routing rule` (with a dst=LAN-priority
   rule first, so reply + inter-VLAN traffic always uses `main`).
-- v6 dual-GUA: every VLAN gets a `/64` from each pool; RFC 6724 source
-  selection biased by per-prefix `preferred-lifetime` overrides.
-- v6 PBR: `mark-connection` on `src-address` matching pool prefixes
-  (load-bearing — without it, MB BCP38-drops sonic-pd-sourced packets).
+- v6 dual-GUA: every VLAN gets a `/64` from each pool. RFC 6724 source
+  selection bias per-VLAN is NOT YET IMPLEMENTED — the original
+  preferred-lifetime override design hit a RouterOS 7.21.4 constraint
+  (`set` rejected on dynamic `/ipv6 nd prefix` entries). See Stage 3
+  for the post-mortem and alternatives.
+- v6 PBR: `/routing rule` source-based per pool (same shape as v4),
+  with dst-LAN priority rules. Routing-mark is never set, so the
+  conntrack-stickiness trap that broke Stage 2 v1–v4 doesn't apply.
 - Netwatch + scripts flip RA timers on WAN-down → next-RA migration.
   v4 failover is router-side route-distance, immediate.
 
@@ -360,70 +364,117 @@ maintains internet through any single-WAN outage.
 sourcing v6 from `mb-pd` GUA will be BCP38-dropped at Sonic upstream
 (same Stage 1 / Stage 2 gap). Stage 3 dual-GUA closes it.
 
-## Stage 3 — v6 dual-GUA per VLAN
+## Stage 3 — v6 dual-GUA per VLAN (source-based, via `/routing rule`)
 
-**Goal:** v6 follows v4 per-SSID routing in steady state. Source-PBR
-ensures clients sending from the "wrong" GUA still egress via the matching
-WAN.
+**Goal:** v6 follows v4 per-SSID routing in steady state. Each VLAN
+gets one GUA per ISP pool; clients prefer the matching primary pool by
+`preferred-lifetime` bias; `/routing rule` source-PBR steers traffic
+to the matching WAN regardless of which GUA the client picked.
+
+**Design pivot from the SONIC-PLAN v1 draft:** original plan used
+`/ipv6 firewall mangle` with source-prefix marks. Stage 2's v1–v4
+attempts proved mangle `mark-routing` is a trap on RouterOS 7.21.4
+(conntrack carries the mark to reply traffic, no LPM-across-tables,
+no fallback to main; see [`README.md`](README.md) § Common pitfalls).
+Stage 3 uses the same `/routing rule` source-based pattern that
+shipped in Stage 2 v5 for v4.
 
 ### `config.rsc` changes
 
-- `/ipv6 address`: parallel to the existing `from-pool=mb-pd` entries
-  (lines 261–264), add `from-pool=sonic-pd advertise=yes` for vlan88,
-  vlan10, vlan20, vlan30. Both pools advertise simultaneously; clients
-  SLAAC one GUA per pool per VLAN.
+- **`/ipv6 address`**: parallel `from-pool=sonic-pd advertise=yes`
+  entries on `vlan88`, `vlan10`, `vlan20`, `vlan30`, alongside the
+  existing `mb-pd` entries. Clients SLAAC one GUA per pool per VLAN.
+  Same `from-pool=`-without-`address=` shape verified by probe 1
+  (2026-05-07).
 
-- `/ipv6 nd prefix`: per-prefix `preferred-lifetime` overrides
-  (probe 2 of 2026-05-07 already confirmed the schema):
+- **Per-VLAN GUA preference biasing: not implemented in this stage.**
+  The original plan was a `/system script` + `/system scheduler` that
+  iterated `/ipv6 nd prefix set [find ...] preferred-lifetime=0s` to
+  deprecate the non-primary pool's RA prefix per VLAN. **That doesn't
+  work on RouterOS 7.21.4** — the `/ipv6 nd prefix` entries auto-
+  derived from `/ipv6 address from-pool=...` are *dynamic*, and `set`
+  on them fails with `failure: can not change dynamic prefix`. The
+  earlier IPV6-PLAN.md probe 2 (2026-05-07) that said this works was
+  testing a STATIC `/ipv6 nd prefix add` entry, which is a different
+  case.
 
-  | VLAN   | `mb-pd` preferred-lifetime | `sonic-pd` preferred-lifetime |
-  |--------|----------------------------|-------------------------------|
-  | vlan10 | `0s` (deprecated)          | default (preferred)           |
-  | vlan20 | default (preferred)        | `0s` (deprecated)             |
-  | vlan30 | default (preferred)        | `0s` (deprecated)             |
-  | vlan88 | default (preferred)        | `0s` (deprecated)             |
+  Net effect: clients SLAAC both GUAs but pick a source per RFC 6724
+  + OS heuristics (not biased toward each VLAN's primary WAN). Traffic
+  still routes correctly via the `/routing rule` chain — whichever
+  GUA a client picks, the matching pool's WAN is used. But the design
+  intent of "plumtree primary on Sonic, others primary on MB" is not
+  enforced at the steady-state level.
 
-  `valid-lifetime` stays default on all — non-preferred prefixes are
-  still routable for inbound, just not picked by RFC 6724 for outbound.
+  Alternatives to revisit later (none of which got past the
+  whiteboard in this stage):
 
-- `/ipv6 firewall mangle`: prerouting source-prefix marks, two-pass
-  pattern mirroring v4. Pass 1 marks the connection by `src-address`
-  matching the literal pool prefix observed in Stage 1 (`mb-pd` `/56`
-  today, `sonic-pd` length per Stage 0/1); pass 2 mark-routings from
-  the connection-mark. **Mandatory, not a safety net** — Stage 2's v4
-  in-interface PBR rules don't fire on v6 (separate filter tables), so
-  without v6 source-PBR a vlan10 client sending from its `mb-pd` GUA
-  egresses via Sonic and gets BCP38-dropped.
+  1. **`advertise=yes/no` toggle on `/ipv6 address from-pool=`.**
+     Only advertise one pool per VLAN; clients SLAAC only that GUA.
+     No dual-GUA safety net.
+  2. **Static `/ipv6 nd prefix add` override** with the literal `/64`
+     per VLAN per pool. Multiplies the rotation-bookkeeping problem
+     by 4 (one entry per VLAN per pool).
+  3. **Accept the limitation.** Current state — dual-pool routing
+     works, no policy bias.
 
-  **Doc sync:** `IPV6-PLAN.md` § Phase C v6 layer currently calls
-  source-PBR a "safety net" (line 332 of that file). Update wording to
-  "mandatory" during this apply so the design doc matches reality.
+- **`/routing rule` v6 chain** — appended to the existing v4 rules
+  from Stage 2:
 
-- v6 fasttrack exclusion is already covered by the Stage 2 edit to the
-  v6 fasttrack rule at line 327.
+  ```
+  add dst-address=fd7f:aee1:6ce0::/48      action=lookup table=main  comment="v6 ULA LAN dsts -> main"
+  add dst-address=2607:f598:d488:6100::/56 action=lookup table=main  comment="v6 MB-pd LAN dsts -> main"
+  add dst-address=<sonic-pd /56>           action=lookup table=main  comment="v6 Sonic-pd LAN dsts -> main (UPDATE if PD rotates)"
+  add src-address=2607:f598:d488:6100::/56 action=lookup table=mb    comment="v6 MB-pd src -> mb"
+  add src-address=<sonic-pd /56>           action=lookup table=sonic comment="v6 Sonic-pd src -> sonic (UPDATE if PD rotates)"
+  ```
 
-### Revert tarpit
+  Same shape as v4: dst-LAN priority catches reply traffic before src
+  rules fire, then per-pool src rules steer outbound. Reply packets
+  have non-LAN src so they bypass the src rules and fall through to
+  main (where the per-VLAN connected `/64`s deliver the packet).
 
-Reverting Stage 3 without prep strands clients with `sonic-pd` GUAs at
-default `valid-lifetime` (≈4w2d). With Stage 2's in-interface PBR and
-no v6 source-PBR, packets sourced from those stale GUAs route via
-vlan-PBR and BCP38-drop. RFC 6724 fallback recovers in seconds for new
-flows but in-flight TCP tarpits.
+- **No `/ipv6 firewall mangle` changes.** The earlier "mandatory v6
+  source-PBR via mangle" design is abandoned. `/routing rule`
+  source-based PBR replaces it.
 
-**Revert procedure:** on the live router, set both pools'
-`preferred-lifetime` AND `valid-lifetime` to `0s` on every VLAN; wait
-one RA interval (≈2–10 min, faster if Stage 4 already tightened it) so
-clients drop the addresses; THEN apply the Stage-2 `config.rsc`.
+- **Fasttrack unchanged from Stage 2 v5.** No `connection-mark=no-mark`
+  predicate needed because no routing-mark is ever set.
 
-### Verify
+### Why literal `/56`s instead of address-list
 
-- `ip -6 addr` on a plumtree client: three v6 addresses (ULA, `mb-pd`
-  GUA deprecated, `sonic-pd` GUA preferred).
-- `curl -6 ipinfo.io` from plumtree → Sonic ASN (sourced from
-  `sonic-pd`). From guest/iot/mgmt → MB ASN (sourced from `mb-pd`).
-- Mangle counters in `/ipv6 firewall mangle print stats` increase.
-- Pull Sonic SFP: plumtree v6 breaks until next RA — Stage 4 closes
-  this. v4 still falls through cleanly per Stage 2.
+`/routing rule` on RouterOS 7.21.4 only accepts literal CIDR for
+`src-address`/`dst-address` — `src-address-list=` is rejected
+("expected end of command"). The natural workaround (use
+`prefix-address-lists` on `/ipv6 dhcp-client` to dynamically populate
+an address-list, then reference it in `/routing rule`) is closed off.
+
+**Mitigation:** the literal Sonic-pd `/56` only needs updating if the
+DHCPv6 client gets a new prefix on rebind. Routine renewal (T1/T2)
+keeps the same prefix because our DUID is stable (driven by the
+bridge `admin-mac` set in `config.rsc`). The `/56` only changes when
+the dhcp-client entry is recreated — which happens on a full apply
+(wipe-and-replay) or on interface flap. Practical workflow: before
+each apply that touches the `/ipv6 dhcp-client` block, run
+`ssh admin@192.168.10.1 '/ipv6 dhcp-client get [find pool-name=sonic-pd] prefix'`
+and update the two `<sonic-pd /56>` literals in `/routing rule` if
+they differ.
+
+### Verify (applied 2026-05-22)
+
+- `ip -6 addr` on a plumtree client: shows three v6 addresses (ULA,
+  `mb-pd` GUA, `sonic-pd` GUA), both GUAs `valid` and `preferred`
+  (no deprecation, since the bias mechanism isn't installed).
+- `curl -6 ipinfo.io` from plumtree → returns whichever pool the
+  client's RFC 6724 source-selection happens to pick. Observed
+  on the apply-day Mac: `mb-pd` GUA (AS32329 MB). Routing-wise
+  it's correct (mb-pd src → mb table → MB egress).
+- `/ipv6 nd prefix print` — all pool-derived `/64`s show their
+  default `preferred-lifetime` from the lease (no overrides
+  applied).
+- Pull Sonic SFP: clients with `sonic-pd` source flows lose v6
+  connectivity until they happen to switch back to `mb-pd` source
+  (no preferred-lifetime bias means slower convergence). v4 still
+  falls through cleanly per Stage 2.
 
 ## Stage 4 — Netwatch + dynamic v6 preferred-lifetime flip
 
