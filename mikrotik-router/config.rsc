@@ -334,18 +334,19 @@ add from-pool=sonic-pd interface=vlan30 advertise=no
 
 # --- WAN default routes per routing table (Stage 2) ---
 # Six routes total (3 tables × 2 WANs):
-#   main : router-originated traffic + LAN dsts via /routing rule — MB primary
-#   mb   : selected by /routing rule for src=vlan20/30/88 subnets
-#   sonic: selected by /routing rule for src=vlan10 (plumtree) subnet
+#   main : router-originated traffic + anything not matching /routing
+#          rule src/dst rules — Sonic primary (faster, better latency)
+#   mb   : selected by /routing rule for src in mb-pd /56 (v6) and
+#          src=vlan20/30/88 subnets (v4)
+#   sonic: selected by /routing rule for src in sonic-pd /56 (v6) and
+#          src=vlan10 (plumtree) subnet (v4)
 # Each table has the local WAN at distance 1 (active) and the other at
 # distance 2 (failover). check-gateway=ping on the d=1 routes triggers
-# fall-through when the upstream stops responding (Stage 0 probe C
-# confirmed MB upstream answers ICMP; Sonic upstream is the symmetric
-# assumption — verify at apply-time).
+# fall-through when the upstream stops responding.
 # Literal next-hops captured at Stage 0 probe D / Stage 1 bind.
 /ip route
-add dst-address=0.0.0.0/0 gateway=162.217.74.129 routing-table=main  distance=1 check-gateway=ping
-add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=main  distance=2
+add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=main  distance=1 check-gateway=ping
+add dst-address=0.0.0.0/0 gateway=162.217.74.129 routing-table=main  distance=2
 add dst-address=0.0.0.0/0 gateway=162.217.74.129 routing-table=mb    distance=1 check-gateway=ping
 add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=mb    distance=2
 add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=sonic distance=1 check-gateway=ping
@@ -383,21 +384,89 @@ add src-address=192.168.10.0/24 action=lookup table=sonic comment="plumtree -> s
 add src-address=192.168.20.0/24 action=lookup table=mb    comment="guest -> mb"
 add src-address=192.168.30.0/24 action=lookup table=mb    comment="iot -> mb"
 add src-address=192.168.88.0/24 action=lookup table=mb    comment="mgmt -> mb"
-# --- Stage 3: v6 source-based PBR per pool ---
-# Same shape as v4 above: dst-LAN priority catches reply traffic, then
-# per-pool src rules steer outbound. /routing rule on 7.21.4 takes
-# literal CIDR only (no src-address-list, so we can't reference an
-# address-list dynamically populated by prefix-address-lists). The
-# Sonic-pd /56 below MAY need an update if a future apply causes Sonic
-# to delegate a different /56 -- DHCPv6 routine renewal keeps the same
-# /56 because our DUID is stable (driven by bridge admin-mac), but a
-# wipe-and-replay that recreates the v6 dhcp-client can get a new /56.
-# Check via: /ipv6 dhcp-client get [find pool-name=sonic-pd] prefix
-add dst-address=fd7f:aee1:6ce0::/48      action=lookup table=main  comment="v6 ULA LAN dsts -> main"
-add dst-address=2607:f598:d488:6100::/56 action=lookup table=main  comment="v6 MB-pd LAN dsts -> main"
-add dst-address=2001:5a8:6a5:4600::/56   action=lookup table=main  comment="v6 Sonic-pd LAN dsts -> main (UPDATE if PD rotates)"
-add src-address=2607:f598:d488:6100::/56 action=lookup table=mb    comment="v6 MB-pd src -> mb"
-add src-address=2001:5a8:6a5:4600::/56   action=lookup table=sonic comment="v6 Sonic-pd src -> sonic (UPDATE if PD rotates)"
+# --- Stage 3: v6 source-based PBR per pool (reconciler-managed) ---
+# Same shape as v4 above (dst-LAN priority + per-pool src rules), but
+# the entries that reference DHCPv6-PD-delegated /56 prefixes are
+# created/updated at runtime by the v6-reconciler script (defined
+# below) -- not declared statically here. This removes the ISP-assigned
+# /56 from config.rsc; transparent to prefix rotation on apply or
+# interface flap. The static rule below covers ULA only (no PD
+# dependency).
+add dst-address=fd7f:aee1:6ce0::/48 action=lookup table=main comment="v6 ULA LAN dsts -> main"
+
+# --- v6-reconciler: keeps /routing rule v6 src/dst entries in sync with
+# live DHCPv6-PD pool prefixes (mb-pd, sonic-pd). Idempotent; tags its
+# entries with comment="auto-v6-{src,dst}-<pool>" so reruns don't dup.
+# Skips pools whose dhcp-client isn't bound yet; the 5m scheduler catches
+# up on the next tick. Logs to /log every add or detected rotation.
+/system script
+:if ([:len [/system script find name=v6-reconciler]] > 0) do={
+    /system script remove [find name=v6-reconciler]
+}
+add name=v6-reconciler source={
+    :local v6Reconcile do={
+        :local poolName $1
+        :local tableName $2
+        :local clients [/ipv6 dhcp-client find pool-name=$poolName]
+        :if ([:len $clients] = 0) do={
+            :log warning ("v6-reconciler: no dhcp-client with pool-name=" . $poolName)
+            :return
+        }
+        :local cid [:pick $clients 0]
+        :local status [/ipv6 dhcp-client get $cid status]
+        :if ($status != "bound") do={
+            :log warning ("v6-reconciler: pool " . $poolName . " status=" . $status . " (not bound)")
+            :return
+        }
+        :local raw [/ipv6 dhcp-client get $cid prefix]
+        :if ([:typeof $raw] != "str" or [:len $raw] = 0) do={
+            :log warning ("v6-reconciler: pool " . $poolName . " empty prefix")
+            :return
+        }
+        :local commaPos [:find $raw ","]
+        :local prefix $raw
+        :if ([:typeof $commaPos] = "num") do={
+            :set prefix [:pick $raw 0 $commaPos]
+        }
+        :local srcCmt ("auto-v6-src-" . $poolName)
+        :local srcExisting [/routing rule find comment=$srcCmt]
+        :if ([:len $srcExisting] = 0) do={
+            /routing rule add src-address=$prefix action=lookup table=$tableName comment=$srcCmt
+            :log info ("v6-reconciler: added src " . $poolName . " (" . $prefix . " -> " . $tableName . ")")
+        } else={
+            :local id [:pick $srcExisting 0]
+            :local cur [:tostr [/routing rule get $id src-address]]
+            :if ($cur != $prefix) do={
+                /routing rule set $id src-address=$prefix table=$tableName
+                :log info ("v6-reconciler: ROTATED src " . $poolName . ": " . $cur . " -> " . $prefix)
+            }
+        }
+        :local dstCmt ("auto-v6-dst-" . $poolName)
+        :local dstExisting [/routing rule find comment=$dstCmt]
+        :if ([:len $dstExisting] = 0) do={
+            /routing rule add dst-address=$prefix action=lookup table=main comment=$dstCmt
+            :log info ("v6-reconciler: added dst " . $poolName . " (" . $prefix . " -> main)")
+        } else={
+            :local id [:pick $dstExisting 0]
+            :local cur [:tostr [/routing rule get $id dst-address]]
+            :if ($cur != $prefix) do={
+                /routing rule set $id dst-address=$prefix
+                :log info ("v6-reconciler: ROTATED dst " . $poolName . ": " . $cur . " -> " . $prefix)
+            }
+        }
+    }
+    $v6Reconcile "mb-pd" "mb"
+    $v6Reconcile "sonic-pd" "sonic"
+}
+
+# Scheduler entries: boot run (60s delay so DHCPv6 clients can bind) +
+# 5m tick. /system scheduler is gated by device-mode -- scheduler=yes
+# is already set on this router and persists across wipe-and-replay.
+# If a deeper reset ever revokes it, re-enable with
+# `/system device-mode update scheduler=yes` + front-button confirm.
+/system scheduler
+add name=v6-reconciler-boot on-event=":delay 60s; /system script run v6-reconciler" start-time=startup
+add name=v6-reconciler-tick on-event="/system script run v6-reconciler" interval=5m
 
 # --- v6 default routes per routing table (Stage 2) ---
 # Same shape as /ip route above; gateways are the upstream link-locals
@@ -407,8 +476,8 @@ add src-address=2001:5a8:6a5:4600::/56   action=lookup table=sonic comment="v6 S
 # go stale. Re-capture from /ipv6 dhcp-client print detail and update
 # config.rsc when that happens.
 /ipv6 route
-add dst-address=::/0 gateway=fe80::f61e:57ff:fe09:94ab%ether2       routing-table=main  distance=1 check-gateway=ping
-add dst-address=::/0 gateway=fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1 routing-table=main  distance=2
+add dst-address=::/0 gateway=fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1 routing-table=main  distance=1 check-gateway=ping
+add dst-address=::/0 gateway=fe80::f61e:57ff:fe09:94ab%ether2       routing-table=main  distance=2
 add dst-address=::/0 gateway=fe80::f61e:57ff:fe09:94ab%ether2       routing-table=mb    distance=1 check-gateway=ping
 add dst-address=::/0 gateway=fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1 routing-table=mb    distance=2
 add dst-address=::/0 gateway=fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1 routing-table=sonic distance=1 check-gateway=ping
