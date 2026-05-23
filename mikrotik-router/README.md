@@ -16,7 +16,7 @@ and re-apply.
 - `IPV6-PLAN.md` — v6 design reference. Phases A + B-MB applied;
   Phase C is folded into the Sonic Stage buildout.
 - `SONIC-PLAN.md` — staged Sonic WAN buildout. Stages 0–3 +
-  reconciler-lite applied 2026-05-22; Stage 4 pending.
+  wan-reconciler applied 2026-05-22; Stage 4 pending.
 
 ## Apply
 

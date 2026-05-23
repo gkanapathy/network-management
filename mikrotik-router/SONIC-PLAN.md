@@ -31,26 +31,50 @@ main-table flip to Sonic-primary applied at the same time. Stage 4
   single-WAN outage until Stage 4 flips `advertise=` on the fallback
   pool.
 
-### Reconciler-lite
+### wan-reconciler (hybrid event-driven + polling)
 
-The `/routing rule` v6 src/dst entries that reference DHCPv6-PD /56
-prefixes (`mb-pd`, `sonic-pd`) are NOT declared statically. A
-`/system script` (`v6-reconciler`) reads the live pool prefix from
-`/ipv6 dhcp-client` and (re)creates the entries with stable
-`comment="auto-v6-{src,dst}-<pool>"` identifiers. Driven by:
+A single `/system script` (`wan-reconciler`) keeps all WAN-derived
+config in sync with the live DHCPv4 + DHCPv6 lease state. **All
+managed entries are declared statically in `config.rsc` with bootstrap
+literals + comment tags; the reconciler only ever updates them
+in-place via `set`** (never `add`). Set-only is race-free because the
+dhcp-client `script=` hook fires from multiple sub-events
+near-simultaneously (e.g., dhcp-client/bind + dhcp-ia/acquire); a
+find-then-add pattern would create duplicates.
 
-- A 2 min `/system scheduler` tick (`v6-reconciler-tick`) — catches
-  any prefix rotation within 2 min worst case.
-- `:execute { :delay 60s; /system script run v6-reconciler }` at the
-  end of `config.rsc`'s script section — apply-day bootstrap, since
-  `start-time=startup` schedulers don't fire on the boot during which
-  they're created.
-- A `start-time=startup` scheduler (`v6-reconciler-boot`) — fires on
-  subsequent clean reboots.
+- **`/routing rule` v6 src/dst** entries (PD-delegated /56) — declared
+  with literal /56 as bootstrap. Tagged
+  `comment="auto-v6-{src,dst}-<pool>"`.
+- **`/ip route` gateway** for the six v4 default routes (per-table
+  × per-WAN) — declared with literal next-hops as bootstrap. Tagged
+  `comment="auto-v4-route-<table>-{pri|sec}-<wan>"`.
+- **`/ipv6 route` gateway** for the six v6 default routes — declared
+  with literal `<LL>%<interface>` as bootstrap. Tagged
+  `comment="auto-v6-route-<table>-{pri|sec}-<wan>"`.
 
-The Sonic-pd /56 lives entirely in the live DHCPv6 lease state; no
-literal reference in `config.rsc`. A prefix rotation from the ISP is
-detected and corrected automatically within one tick.
+The reconciler heals all three when the ISP rotates the underlying
+value (PD /56, v4 next-hop, or upstream link-local).
+
+Triggered three ways (hybrid):
+
+- **Event-driven** — `/ip dhcp-client script="…"` and `/ipv6 dhcp-client
+  script="…"` invoke the reconciler on lease bind / value change.
+  Fast reaction (immediate, no scheduler delay). Fires on actual lease
+  events; not on no-op renewals where values didn't change.
+- **Polling** — `/system scheduler` at 10 min interval. Belt-and-
+  suspenders against any drift the event-driven path misses (manual
+  edits, missed events, bugs).
+- **Implicit apply-day bootstrap** — dhcp-client first-bind after
+  `config.rsc` import naturally fires the event-driven trigger.
+
+The reconciler script is defined in `config.rsc` *before* `/ip
+dhcp-client` so the named script exists when each dhcp-client's
+`script=` property gets set during import.
+
+The Sonic-pd /56 lives entirely in the live DHCPv6 lease state; the
+v4 next-hops and v6 upstream link-locals live in `config.rsc` only as
+bootstrap defaults that get healed by the reconciler when the ISP
+rotates them.
 
 ## Stage 4 — Netwatch + dynamic `advertise=` flip (pending)
 
@@ -84,7 +108,7 @@ rejects `set` on dynamic prefix entries (Stage 3 post-mortem). The
   ```
   `sonic-up` reverts; `mb-down` / `mb-up` are symmetric for
   vlan20/30/88.
-- Extend `v6-reconciler` to also re-assert `advertise=` based on
+- Extend `wan-reconciler` to also re-assert `advertise=` based on
   per-table route active state (`/ip route get [find …] active`).
   Belt-and-suspenders against a missed Netwatch event.
 - Tighten `/ipv6 nd min-rtr-adv-interval` on vlan10/20/30/88 to
@@ -99,7 +123,7 @@ rejects `set` on dynamic prefix entries (Stage 3 post-mortem). The
   pick up the `mb-pd` GUA via SLAAC, source from it, egress via MB.
 - Restore. Within Netwatch recovery interval, scripts revert.
 - Reconciler self-heal: manually misset `advertise=` on one entry;
-  wait the 2 min reconciler tick; confirm restoration.
+  wait the 10 min reconciler tick; confirm restoration.
 
 ## Stages 0–3 — history (collapsed)
 

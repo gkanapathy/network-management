@@ -165,8 +165,8 @@ verification probe" below.)
   - `vlan10` (plumtree) → `sonic`
   - `vlan20` (guest), `vlan30` (iot), `vlan88` (mgmt) → `mb`
 - Each routing table lists the *other* WAN at higher distance, so a
-  primary-WAN failure fails through to secondary. `main` is now
-  Sonic-primary (applied 2026-05-22 with the reconciler-lite change).
+  primary-WAN failure fails through to secondary. `main` is
+  Sonic-primary.
 - NAT (`masquerade`) on each WAN's egress; shape unchanged.
 
 ### v6 layer — per-VLAN single-GUA via `advertise=yes/no`
@@ -327,7 +327,7 @@ controller exposes per-SSID IPv6 toggles, leave them consistent with
 ## Phase C apply staging
 
 Phase C is staged as [`SONIC-PLAN.md`](SONIC-PLAN.md) Stages 0–4.
-Stages 0–3 + reconciler-lite applied 2026-05-22; Stage 4 (Netwatch +
+Stages 0–3 + wan-reconciler applied 2026-05-22; Stage 4 (Netwatch +
 `advertise=` flip) pending. Where this doc and SONIC-PLAN differ on
 Phase C specifics, SONIC-PLAN wins.
 

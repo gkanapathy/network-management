@@ -60,6 +60,138 @@ add name=toggle-leds source={
 /system routerboard reset-button
 set enabled=yes hold-time=0s..2s on-event=toggle-leds
 
+# --- wan-reconciler: reconciles WAN-derived config from live DHCP state ---
+# Single script, idempotent, comment-tagged identifiers. Reconciles:
+#  - /routing rule v6 src/dst entries against /ipv6 dhcp-client prefix
+#    (PD-delegated /56 -- volatile; ISP renewals can rotate it)
+#  - /ip route gateway against /ip dhcp-client gateway (v4 next-hop --
+#    stable, changes only on ISP infra changes)
+#  - /ipv6 route gateway against /ipv6 dhcp-client dhcp-server-v6
+#    (upstream link-local -- stable, changes only on ISP CPE swap)
+#
+# Triggered three ways (hybrid):
+#  - Event-driven: /ip dhcp-client and /ipv6 dhcp-client `script=`
+#    hooks call this on lease bind/value-change. Fast reaction.
+#  - Polling: /system scheduler at 10 min interval. Belt-and-suspenders
+#    against drift from manual edits / missed events / bugs.
+#  - Implicit apply-day bootstrap: dhcp-client first bind after
+#    config.rsc import naturally fires the event-driven trigger.
+#
+# Identifiers it manages (find by comment):
+#  - /routing rule comment="auto-v6-{src,dst}-<pool>"
+#  - /ip route comment="auto-v4-route-<table>-<pri|sec>-<wan>"
+#  - /ipv6 route comment="auto-v6-route-<table>-<pri|sec>-<wan>"
+# Don't reuse those comment strings elsewhere.
+#
+# Defined here (before /ip dhcp-client) so the named script exists
+# when dhcp-client's `script=` property gets set during import --
+# otherwise there's a race where the dhcp-client could bind and call a
+# script that doesn't exist yet.
+/system script
+:if ([:len [/system script find name=wan-reconciler]] > 0) do={
+    /system script remove [find name=wan-reconciler]
+}
+add name=wan-reconciler source={
+    # Uses RouterOS native typed values throughout -- /ipv6 pool gives a
+    # clean ip6-prefix (no lifetime suffix to parse), dhcp-server-v6 is
+    # ip6, /ip dhcp-client gateway is ip, /routing rule src/dst-address
+    # is ip6-prefix. Equality is canonicalized; concat auto-coerces.
+    # --- v6 reconciler: per pool, update /routing rule + /ipv6 route ---
+    :local v6Reconcile do={
+        :local poolName $1
+        :local tableName $2
+        :local wanName $3
+        # /ipv6 pool is populated when dhcp-client is bound + IA_PD granted.
+        # Absence is the cleanest "not ready" signal -- skip and let
+        # the next reconciler call retry.
+        :local pools [/ipv6 pool find name=$poolName]
+        :if ([:len $pools] = 0) do={
+            :log warning ("wan-reconciler: pool " . $poolName . " not delegated yet")
+            :return
+        }
+        :local prefix [/ipv6 pool get [:pick $pools 0] prefix]
+        # /routing rule v6 src/dst: declared statically in /routing rule
+        # block; reconciler only sets in-place. Set-only is race-free
+        # (the dhcp-client script= hook fires from multiple sub-events
+        # in close succession; find-then-add would create duplicates).
+        # If the comment-tagged entry is missing, log loudly and skip
+        # -- restoration requires re-apply or manual re-declare.
+        :local srcCmt ("auto-v6-src-" . $poolName)
+        :local srcExisting [/routing rule find comment=$srcCmt]
+        :if ([:len $srcExisting] = 0) do={
+            :log warning ("wan-reconciler: " . $srcCmt . " missing -- re-declare in /routing rule (config.rsc) or re-apply")
+        } else={
+            :local id [:pick $srcExisting 0]
+            :local cur [/routing rule get $id src-address]
+            :if ($cur != $prefix) do={
+                /routing rule set $id src-address=$prefix table=$tableName
+                :log info ("wan-reconciler: ROTATED v6 src " . $poolName . ": " . $cur . " -> " . $prefix)
+            }
+        }
+        :local dstCmt ("auto-v6-dst-" . $poolName)
+        :local dstExisting [/routing rule find comment=$dstCmt]
+        :if ([:len $dstExisting] = 0) do={
+            :log warning ("wan-reconciler: " . $dstCmt . " missing -- re-declare in /routing rule (config.rsc) or re-apply")
+        } else={
+            :local id [:pick $dstExisting 0]
+            :local cur [/routing rule get $id dst-address]
+            :if ($cur != $prefix) do={
+                /routing rule set $id dst-address=$prefix
+                :log info ("wan-reconciler: ROTATED v6 dst " . $poolName . ": " . $cur . " -> " . $prefix)
+            }
+        }
+        # /ipv6 route gateways from upstream link-local (only in dhcp-client,
+        # not in pool). Gateway field is stored as string "LL%interface",
+        # so we compare strings here.
+        :local clients [/ipv6 dhcp-client find pool-name=$poolName]
+        :if ([:len $clients] > 0) do={
+            :local cid [:pick $clients 0]
+            :local llv6 [/ipv6 dhcp-client get $cid dhcp-server-v6]
+            :local intf [/ipv6 dhcp-client get $cid interface]
+            :if ([:typeof $llv6] != "nothing" and [:typeof $intf] != "nothing") do={
+                :local gw ($llv6 . "%" . $intf)
+                :foreach r in=[/ipv6 route find comment~("^auto-v6-route-.*-" . $wanName . "\$")] do={
+                    :local cur [/ipv6 route get $r gateway]
+                    :if ($cur != $gw) do={
+                        /ipv6 route set $r gateway=$gw
+                        :log info ("wan-reconciler: ROTATED v6 gw " . $wanName . " in " . [/ipv6 route get $r comment] . ": " . $cur . " -> " . $gw)
+                    }
+                }
+            }
+        }
+    }
+    # --- v4 reconciler: per WAN interface, update /ip route gateway ---
+    :local v4Reconcile do={
+        :local ifName $1
+        :local wanName $2
+        :local clients [/ip dhcp-client find interface=$ifName]
+        :if ([:len $clients] = 0) do={
+            :log warning ("wan-reconciler: no v4 dhcp-client on " . $ifName)
+            :return
+        }
+        :local cid [:pick $clients 0]
+        :local status [/ip dhcp-client get $cid status]
+        :if ($status != "bound") do={
+            :log warning ("wan-reconciler: v4 " . $ifName . " status=" . $status)
+            :return
+        }
+        :local gw [/ip dhcp-client get $cid gateway]
+        :if ([:typeof $gw] = "nothing") do={ :return }
+        # Both sides are ip type -- typed equality, no :tostr needed.
+        :foreach r in=[/ip route find comment~("^auto-v4-route-.*-" . $wanName . "\$")] do={
+            :local cur [/ip route get $r gateway]
+            :if ($cur != $gw) do={
+                /ip route set $r gateway=$gw
+                :log info ("wan-reconciler: ROTATED v4 gw " . $wanName . " in " . [/ip route get $r comment] . ": " . $cur . " -> " . $gw)
+            }
+        }
+    }
+    $v6Reconcile "mb-pd"    "mb"    "mb"
+    $v6Reconcile "sonic-pd" "sonic" "sonic"
+    $v4Reconcile "ether2"       "mb"
+    $v4Reconcile "sfp-sfpplus1" "sonic"
+}
+
 # --- timezone + NTP ---
 # Pin time-zone explicitly; turn off autodetect (which uses IP-geolocation
 # via a MikroTik service over the WAN). Router is stationary, so we don't
@@ -272,11 +404,15 @@ add address=192.168.88.252 mac-address=24:2F:D0:02:07:5A server=mgmt-dhcp commen
 # --- WAN: DHCP clients (Stage 2: add-default-route=no) ---
 # Both clients still bind addresses and learn gateway from the ISP;
 # /ip route below installs the per-table defaults manually with the
-# literal gateways captured at Stage 0 probe D / Stage 1 bind.
+# literal gateways captured at Stage 0 probe D / Stage 1 bind. The
+# wan-reconciler script updates those gateways in-place when the ISP
+# rotates next-hop IPs.
 # use-peer-dns=yes keeps both ISPs' resolvers in /ip dns dynamic-servers.
+# script= fires the wan-reconciler on lease bind/value-change (event-
+# driven trigger; complements the /system scheduler 10m tick).
 /ip dhcp-client
-add interface=ether2       add-default-route=no use-peer-dns=yes
-add interface=sfp-sfpplus1 add-default-route=no use-peer-dns=yes
+add interface=ether2       add-default-route=no use-peer-dns=yes script="/system script run wan-reconciler"
+add interface=sfp-sfpplus1 add-default-route=no use-peer-dns=yes script="/system script run wan-reconciler"
 
 # --- WAN: DHCPv6-PD clients (Stage 2: add-default-route=no) ---
 # MB delegates prefix-only (probe 1, 2026-05-07); Sonic delegates
@@ -291,9 +427,11 @@ add interface=sfp-sfpplus1 add-default-route=no use-peer-dns=yes
 # (unlike /ip dhcp-client which defaults to yes), so the explicit `no`
 # here also serves as belt-and-suspenders against future schema drift.
 # use-peer-dns inherits the default `yes`, parallel to /ip dhcp-client.
+# script= fires the wan-reconciler when prefix/address is acquired or
+# expires -- catches PD rotation and CPE-MAC LL changes.
 /ipv6 dhcp-client
-add interface=ether2       request=address,prefix pool-name=mb-pd    pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no
-add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no
+add interface=ether2       request=address,prefix pool-name=mb-pd    pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no script="/system script run wan-reconciler"
+add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no script="/system script run wan-reconciler"
 
 # --- IPv6 GUA per VLAN, from the Monkeybrains pool (Phase B-MB) ---
 # RouterOS 7.21.4 `from-pool=` semantics is prefix-only-to-interface: the
@@ -345,12 +483,12 @@ add from-pool=sonic-pd interface=vlan30 advertise=no
 # fall-through when the upstream stops responding.
 # Literal next-hops captured at Stage 0 probe D / Stage 1 bind.
 /ip route
-add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=main  distance=1 check-gateway=ping
-add dst-address=0.0.0.0/0 gateway=162.217.74.129 routing-table=main  distance=2
-add dst-address=0.0.0.0/0 gateway=162.217.74.129 routing-table=mb    distance=1 check-gateway=ping
-add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=mb    distance=2
-add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=sonic distance=1 check-gateway=ping
-add dst-address=0.0.0.0/0 gateway=162.217.74.129 routing-table=sonic distance=2
+add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=main  distance=1 check-gateway=ping comment="auto-v4-route-main-pri-sonic"
+add dst-address=0.0.0.0/0 gateway=162.217.74.129 routing-table=main  distance=2                    comment="auto-v4-route-main-sec-mb"
+add dst-address=0.0.0.0/0 gateway=162.217.74.129 routing-table=mb    distance=1 check-gateway=ping comment="auto-v4-route-mb-pri-mb"
+add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=mb    distance=2                    comment="auto-v4-route-mb-sec-sonic"
+add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=sonic distance=1 check-gateway=ping comment="auto-v4-route-sonic-pri-sonic"
+add dst-address=0.0.0.0/0 gateway=162.217.74.129 routing-table=sonic distance=2                    comment="auto-v4-route-sonic-sec-mb"
 
 # --- routing rules for per-VLAN source-based PBR (Stage 2) ---
 # Source-based PBR via /routing rule, NOT mangle mark-routing. The
@@ -384,104 +522,41 @@ add src-address=192.168.10.0/24 action=lookup table=sonic comment="plumtree -> s
 add src-address=192.168.20.0/24 action=lookup table=mb    comment="guest -> mb"
 add src-address=192.168.30.0/24 action=lookup table=mb    comment="iot -> mb"
 add src-address=192.168.88.0/24 action=lookup table=mb    comment="mgmt -> mb"
-# --- Stage 3: v6 source-based PBR per pool (reconciler-managed) ---
-# Same shape as v4 above (dst-LAN priority + per-pool src rules), but
-# the entries that reference DHCPv6-PD-delegated /56 prefixes are
-# created/updated at runtime by the v6-reconciler script (defined
-# below) -- not declared statically here. This removes the ISP-assigned
-# /56 from config.rsc; transparent to prefix rotation on apply or
-# interface flap. The static rule below covers ULA only (no PD
-# dependency).
-add dst-address=fd7f:aee1:6ce0::/48 action=lookup table=main comment="v6 ULA LAN dsts -> main"
-
-# --- v6-reconciler: keeps /routing rule v6 src/dst entries in sync with
-# live DHCPv6-PD pool prefixes (mb-pd, sonic-pd). Idempotent; tags its
-# entries with comment="auto-v6-{src,dst}-<pool>" so reruns don't dup.
-# Skips pools whose dhcp-client isn't bound yet; the 5m scheduler catches
-# up on the next tick. Logs to /log every add or detected rotation.
-/system script
-:if ([:len [/system script find name=v6-reconciler]] > 0) do={
-    /system script remove [find name=v6-reconciler]
-}
-add name=v6-reconciler source={
-    :local v6Reconcile do={
-        :local poolName $1
-        :local tableName $2
-        :local clients [/ipv6 dhcp-client find pool-name=$poolName]
-        :if ([:len $clients] = 0) do={
-            :log warning ("v6-reconciler: no dhcp-client with pool-name=" . $poolName)
-            :return
-        }
-        :local cid [:pick $clients 0]
-        :local status [/ipv6 dhcp-client get $cid status]
-        :if ($status != "bound") do={
-            :log warning ("v6-reconciler: pool " . $poolName . " status=" . $status . " (not bound)")
-            :return
-        }
-        :local raw [/ipv6 dhcp-client get $cid prefix]
-        :if ([:typeof $raw] != "str" or [:len $raw] = 0) do={
-            :log warning ("v6-reconciler: pool " . $poolName . " empty prefix")
-            :return
-        }
-        :local commaPos [:find $raw ","]
-        :local prefix $raw
-        :if ([:typeof $commaPos] = "num") do={
-            :set prefix [:pick $raw 0 $commaPos]
-        }
-        :local srcCmt ("auto-v6-src-" . $poolName)
-        :local srcExisting [/routing rule find comment=$srcCmt]
-        :if ([:len $srcExisting] = 0) do={
-            /routing rule add src-address=$prefix action=lookup table=$tableName comment=$srcCmt
-            :log info ("v6-reconciler: added src " . $poolName . " (" . $prefix . " -> " . $tableName . ")")
-        } else={
-            :local id [:pick $srcExisting 0]
-            :local cur [:tostr [/routing rule get $id src-address]]
-            :if ($cur != $prefix) do={
-                /routing rule set $id src-address=$prefix table=$tableName
-                :log info ("v6-reconciler: ROTATED src " . $poolName . ": " . $cur . " -> " . $prefix)
-            }
-        }
-        :local dstCmt ("auto-v6-dst-" . $poolName)
-        :local dstExisting [/routing rule find comment=$dstCmt]
-        :if ([:len $dstExisting] = 0) do={
-            /routing rule add dst-address=$prefix action=lookup table=main comment=$dstCmt
-            :log info ("v6-reconciler: added dst " . $poolName . " (" . $prefix . " -> main)")
-        } else={
-            :local id [:pick $dstExisting 0]
-            :local cur [:tostr [/routing rule get $id dst-address]]
-            :if ($cur != $prefix) do={
-                /routing rule set $id dst-address=$prefix
-                :log info ("v6-reconciler: ROTATED dst " . $poolName . ": " . $cur . " -> " . $prefix)
-            }
-        }
-    }
-    $v6Reconcile "mb-pd" "mb"
-    $v6Reconcile "sonic-pd" "sonic"
-}
-
-# Scheduler entries: boot run (60s delay so DHCPv6 clients can bind) +
-# 5m tick. /system scheduler is gated by device-mode -- scheduler=yes
-# is already set on this router and persists across wipe-and-replay.
-# If a deeper reset ever revokes it, re-enable with
-# `/system device-mode update scheduler=yes` + front-button confirm.
-/system scheduler
-add name=v6-reconciler-boot on-event=":delay 60s; /system script run v6-reconciler" start-time=startup
-add name=v6-reconciler-tick on-event="/system script run v6-reconciler" interval=5m
+# --- Stage 3: v6 source-based PBR per pool ---
+# Same shape as v4 above (dst-LAN priority + per-pool src rules). The
+# entries referencing DHCPv6-PD-delegated /56 prefixes are declared
+# here with bootstrap literals (current ISP /56s) and tagged with
+# comment="auto-v6-{src,dst}-<pool>"; the wan-reconciler script (near
+# the top of this file) finds them by comment and updates the
+# src/dst-address in place when the ISP rotates the delegation.
+# Bootstrap-literals-with-reconciler-update mirrors the /ip route +
+# /ipv6 route pattern below.
+#
+# Why declare and `set` rather than `add` from the script: the script=
+# hook on /ipv6 dhcp-client fires on BOTH dhcp-client/bind and
+# dhcp-ia/acquire sub-events near-simultaneously. A find-then-add
+# pattern races and creates duplicate rules. Declaring statically +
+# only ever updating via `set` is race-free (idempotent set with same
+# value).
+add dst-address=fd7f:aee1:6ce0::/48      action=lookup table=main  comment="v6 ULA LAN dsts -> main"
+add src-address=2607:f598:d488:6100::/56 action=lookup table=mb    comment="auto-v6-src-mb-pd"
+add dst-address=2607:f598:d488:6100::/56 action=lookup table=main  comment="auto-v6-dst-mb-pd"
+add src-address=2001:5a8:6a5:4600::/56   action=lookup table=sonic comment="auto-v6-src-sonic-pd"
+add dst-address=2001:5a8:6a5:4600::/56   action=lookup table=main  comment="auto-v6-dst-sonic-pd"
 
 # --- v6 default routes per routing table (Stage 2) ---
 # Same shape as /ip route above; gateways are the upstream link-locals
 # (visible in /ipv6 dhcp-client print detail as dhcp-server-v6=).
-# Caveat: link-locals are derived from the upstream router's MAC. If
-# either ISP swaps their CPE hardware the LL changes and these routes
-# go stale. Re-capture from /ipv6 dhcp-client print detail and update
-# config.rsc when that happens.
+# The literal gateways here are bootstrap defaults; the wan-reconciler
+# script updates them in-place when the upstream LL changes (e.g.,
+# ISP swaps CPE hardware -> new upstream MAC -> new LL).
 /ipv6 route
-add dst-address=::/0 gateway=fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1 routing-table=main  distance=1 check-gateway=ping
-add dst-address=::/0 gateway=fe80::f61e:57ff:fe09:94ab%ether2       routing-table=main  distance=2
-add dst-address=::/0 gateway=fe80::f61e:57ff:fe09:94ab%ether2       routing-table=mb    distance=1 check-gateway=ping
-add dst-address=::/0 gateway=fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1 routing-table=mb    distance=2
-add dst-address=::/0 gateway=fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1 routing-table=sonic distance=1 check-gateway=ping
-add dst-address=::/0 gateway=fe80::f61e:57ff:fe09:94ab%ether2       routing-table=sonic distance=2
+add dst-address=::/0 gateway=fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1 routing-table=main  distance=1 check-gateway=ping comment="auto-v6-route-main-pri-sonic"
+add dst-address=::/0 gateway=fe80::f61e:57ff:fe09:94ab%ether2       routing-table=main  distance=2                    comment="auto-v6-route-main-sec-mb"
+add dst-address=::/0 gateway=fe80::f61e:57ff:fe09:94ab%ether2       routing-table=mb    distance=1 check-gateway=ping comment="auto-v6-route-mb-pri-mb"
+add dst-address=::/0 gateway=fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1 routing-table=mb    distance=2                    comment="auto-v6-route-mb-sec-sonic"
+add dst-address=::/0 gateway=fe80::5e5e:abff:feda:ebc0%sfp-sfpplus1 routing-table=sonic distance=1 check-gateway=ping comment="auto-v6-route-sonic-pri-sonic"
+add dst-address=::/0 gateway=fe80::f61e:57ff:fe09:94ab%ether2       routing-table=sonic distance=2                    comment="auto-v6-route-sonic-sec-mb"
 
 # --- DNS ---
 /ip dns
@@ -580,5 +655,29 @@ set allowed-interface-list=LAN
 # Default is enabled+authenticate, exposes a btest server. Unused here.
 /tool bandwidth-server
 set enabled=no
+
+# --- wan-reconciler scheduler tick (belt-and-suspenders) ---
+# Event-driven trigger is the dhcp-client script= hook above (fires on
+# lease bind/value-change, immediate reaction). This 10m tick catches
+# drift from any source the event misses -- manual edits, missed
+# events, bugs.
+#
+# /system scheduler is gated by /system device-mode. scheduler=yes is
+# already set on this router and persists across routine
+# wipe-and-replay applies, but a deeper reset (button-hold factory
+# reset, netinstall) restores device-mode to its defaults
+# (scheduler=no). Without the :do/on-error wrap, the `add` below would
+# raise an unhandled "not allowed by device-mode" error on cold
+# bootstrap and abort the import partway through -- leaving the
+# router half-configured. The wrap lets the import complete; the
+# event-driven script= hooks on dhcp-clients still work (they don't
+# need /system scheduler), so the loss is just the 10m polling
+# safety net. Recovery: `/system device-mode update scheduler=yes`
+# + front-button confirm, then re-apply (see README.md Recovery).
+:do {
+    /system scheduler add name=wan-reconciler-tick on-event="/system script run wan-reconciler" interval=10m
+} on-error={
+    :log warning "config.rsc: /system scheduler add failed (cold-bootstrap device-mode reset?). Event-driven reconciler still active; re-enable scheduler via /system device-mode + button-confirm to restore polling."
+}
 
 :log info "config.rsc: done"
