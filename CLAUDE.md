@@ -75,10 +75,13 @@ router by hand — drift will get wiped on the next apply.
   via `/routing rule`. Current routing — plumtree (v4 + v6) → Sonic
   primary; guest/iot/mgmt (v4 + v6) → MB primary; `main` table →
   Sonic primary too (router-originated traffic + any fall-through).
-  v6 uses a single-GUA-per-VLAN approach (both pools bound on every
-  VLAN so source-PBR can match, but only the primary pool is
-  `advertise=yes`) — Trade-off: no dual-GUA safety net during a
-  single-WAN outage until Stage 4 lands. WAN-derived literals (PD
+  v6 uses a dual-GUA-per-VLAN approach: both pools bound on every
+  VLAN with `advertise=no`, RA emission driven by explicit static
+  `/ipv6 nd prefix` entries with `preferred-lifetime=1w` on the
+  primary pool and `preferred-lifetime=0s` (deprecated) on the
+  secondary. Clients SLAAC both, RFC 6724 Rule 3 picks the preferred
+  for new flows; Stage 4 will flip preferred-lifetime on WAN-down
+  events to migrate clients to the surviving GUA without DAD wait. WAN-derived literals (PD
   /56s, v4 next-hops, v6 upstream link-locals) are kept in sync with
   live DHCP state by a `wan-reconciler` script, triggered three ways
   (hybrid): /ip + /ipv6 dhcp-client `script=` hooks on lease change

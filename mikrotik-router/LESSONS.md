@@ -165,6 +165,43 @@ This drove the Stage 3 design from "dual-GUA with hopeful
 RFC-6724-based source selection" to "advertise only the matching
 pool's GUA per VLAN, with source-PBR enforcing it server-side."
 
+### `:local` variable names cannot contain underscores
+
+`:local foo_bar 30m` errors with `Script Error: expected end of
+command` on the underscore. The 7.21.4 parser treats `_` as a
+statement-end of some kind. CamelCase or all-lowercase no-separator
+works fine: `:local fooBar 30m` or `:local lifetimecap 30m`.
+
+Not documented anywhere obvious; surfaced while building the
+clamped lifetime reconciler.
+
+### Bare `:return` in functions taking args errors on the next call
+
+In a `:local fn do={...}` user-defined function on 7.21.4, **bare
+`:return` (no value) errors out the script on the next invocation
+of the function** if the function takes positional arguments via
+`$1`/`$2`/etc. Error message: `Script Error: missing value(s) of
+argument(s) value` — misleading because it points at "argument
+values" when the actual issue is the return statement.
+
+Reproduces with two-line minimum:
+
+```
+:local fn do={ :put ("arg=" . $1); :return }
+$fn "a"  ; works
+$fn "b"  ; Script Error: missing value(s) of argument(s) value
+```
+
+Fix: always `:return true` (or any value, doesn't matter what). The
+caller doesn't have to consume it; just give `:return` an argument.
+
+`:return value` works in all cases; bare `:return` may "work" by
+luck if the function is called only once (or if the failing call
+happens to be the LAST statement in the script body). The
+wan-reconciler used bare `:return` for a while because its call
+ordering happened to dodge the trap; rewrote to `:return true`
+defensively after hitting it during the dual-GUA expansion.
+
 ### RouterOS interactive SSH scoping
 
 When piping multiple commands via SSH stdin (heredoc, multi-line

@@ -111,7 +111,7 @@ add name=wan-reconciler source={
         :local pools [/ipv6 pool find name=$poolName]
         :if ([:len $pools] = 0) do={
             :log warning ("wan-reconciler: pool " . $poolName . " not delegated yet")
-            :return
+            :return true
         }
         :local prefix [/ipv6 pool get [:pick $pools 0] prefix]
         # /routing rule v6 src/dst: declared statically in /routing rule
@@ -171,16 +171,16 @@ add name=wan-reconciler source={
         :local clients [/ip dhcp-client find interface=$ifName]
         :if ([:len $clients] = 0) do={
             :log warning ("wan-reconciler: no v4 dhcp-client on " . $ifName)
-            :return
+            :return true
         }
         :local cid [:pick $clients 0]
         :local status [/ip dhcp-client get $cid status]
         :if ($status != "bound") do={
             :log warning ("wan-reconciler: v4 " . $ifName . " status=" . $status)
-            :return
+            :return true
         }
         :local gw [/ip dhcp-client get $cid gateway]
-        :if ([:typeof $gw] = "nothing") do={ :return }
+        :if ([:typeof $gw] = "nothing") do={ :return true }
         # Both sides are ip type -- typed equality, no :tostr needed.
         :foreach r in=[/ip route find comment~("^auto-v4-route-.*-" . $wanName . "\$")] do={
             :local cur [/ip route get $r gateway]
@@ -190,10 +190,88 @@ add name=wan-reconciler source={
             }
         }
     }
+    # --- v6 nd-prefix reconciler: per (VLAN, pool), keep the static
+    # /ipv6 nd prefix entry's prefix= in sync with the bound /64 from
+    # /ipv6 address from-pool=, and keep valid-lifetime + (for the
+    # preferred entries only) preferred-lifetime tracking the live
+    # lease from /ipv6 pool, clamped at the ceiling below.
+    #
+    # The 30m clamp: stale-prefix exposure on /56 rotation is capped at
+    # 30m (RAs stop refreshing the old prefix; valid counts down on
+    # clients). Normal operation: pool's lifetime is hours/days, clamp
+    # always trims it; if the lease ever drops below 30m, the smaller
+    # pool value passes through. Stage 4 territory is preferred-lifetime
+    # *value* (0s vs not); this reconciler doesn't override the 0s
+    # deprecation -- if the field is 0s, it stays 0s.
+    :local v6NdReconcile do={
+        :local vlanName $1
+        :local poolName $2
+        :local ltCap 30m
+        :local addrId [:pick [/ipv6 address find interface=$vlanName from-pool=$poolName] 0]
+        :if ([:typeof $addrId] = "nothing") do={
+            :log warning ("wan-reconciler: no /ipv6 address " . $vlanName . " " . $poolName)
+            :return true
+        }
+        :local bound [/ipv6 address get $addrId address]
+        # During apply-day binding, /ipv6 address from-pool= briefly
+        # shows "::/64" as a placeholder before the pool is populated.
+        # Don't capture that into /ipv6 nd prefix -- skip this VLAN/pool
+        # and let the next reconciler tick catch up once binding lands.
+        # (Observed in the wild: apply-day bug where transient ::/64 got
+        # written to /ipv6 nd prefix entries and persisted because the
+        # bind-event script= only fires once per lease event, not
+        # continuously. The 10m polling tick eventually heals; this
+        # check just avoids creating the bad state in the first place.)
+        :if ($bound = "::/64") do={
+            :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " /ipv6 address bind in progress (::/64), retry next tick")
+            :return true
+        }
+        :local cmt ("auto-nd-" . $vlanName . "-" . $poolName)
+        :local ndExisting [/ipv6 nd prefix find comment=$cmt]
+        :if ([:len $ndExisting] = 0) do={
+            :log warning ("wan-reconciler: " . $cmt . " missing -- re-declare in /ipv6 nd prefix (config.rsc) or re-apply")
+            :return true
+        }
+        :local ndId [:pick $ndExisting 0]
+        # prefix= update (only on /56 rotation)
+        :local cur [/ipv6 nd prefix get $ndId prefix]
+        :if ($cur != $bound) do={
+            /ipv6 nd prefix set $ndId prefix=$bound
+            :log info ("wan-reconciler: ROTATED nd " . $vlanName . "-" . $poolName . ": " . $cur . " -> " . $bound)
+        }
+        # lifetime tracking from pool, clamped
+        :local poolId [:pick [/ipv6 pool find name=$poolName] 0]
+        :if ([:typeof $poolId] != "nothing") do={
+            :local poolValid [/ipv6 pool get $poolId valid-lifetime]
+            :if ($poolValid > $ltCap) do={ :set poolValid $ltCap }
+            :local ndValid [/ipv6 nd prefix get $ndId valid-lifetime]
+            :if ($ndValid != $poolValid) do={
+                /ipv6 nd prefix set $ndId valid-lifetime=$poolValid
+            }
+            # preferred-lifetime: only for "preferred" entries (current >0s).
+            # Deprecated entries (current=0s) are Stage-4-managed; don't override.
+            :local ndPref [/ipv6 nd prefix get $ndId preferred-lifetime]
+            :if ($ndPref > 0s) do={
+                :local poolPref [/ipv6 pool get $poolId preferred-lifetime]
+                :if ($poolPref > $ltCap) do={ :set poolPref $ltCap }
+                :if ($ndPref != $poolPref) do={
+                    /ipv6 nd prefix set $ndId preferred-lifetime=$poolPref
+                }
+            }
+        }
+    }
     $v6Reconcile "mb-pd"    "mb"    "mb"
     $v6Reconcile "sonic-pd" "sonic" "sonic"
     $v4Reconcile "ether2"       "mb"
     $v4Reconcile "sfp-sfpplus1" "sonic"
+    $v6NdReconcile "vlan88" "mb-pd"
+    $v6NdReconcile "vlan88" "sonic-pd"
+    $v6NdReconcile "vlan10" "mb-pd"
+    $v6NdReconcile "vlan10" "sonic-pd"
+    $v6NdReconcile "vlan20" "mb-pd"
+    $v6NdReconcile "vlan20" "sonic-pd"
+    $v6NdReconcile "vlan30" "mb-pd"
+    $v6NdReconcile "vlan30" "sonic-pd"
 }
 
 # --- timezone + NTP ---
@@ -425,33 +503,74 @@ add interface=sfp-sfpplus1 add-default-route=no use-peer-dns=yes script="/system
 add interface=ether2       request=address,prefix pool-name=mb-pd    pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no script="/system script run wan-reconciler"
 add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no script="/system script run wan-reconciler"
 
-# --- IPv6 GUA per-VLAN from DHCPv6-PD pools (Phase B-MB + Stage 3) ---
+# --- IPv6 GUA per-VLAN from DHCPv6-PD pools (Phase B-MB + Phase C) ---
 # from-pool= on 7.21.4 is prefix-only-to-interface: the pool's /64 is
-# bound to the VLAN as a network address (for RA emission and routing);
-# the router itself has no host GUA on the interface. Clients SLAAC
-# their own GUAs; router stays reachable via per-VLAN ULA ::1 (Phase A)
-# and link-local. /64 re-derives automatically on lease renewal.
+# bound to the VLAN as a network address (for routing); the router has
+# no host GUA on the interface. Clients SLAAC their own GUAs; router
+# stays reachable via per-VLAN ULA ::1 (Phase A) and link-local. /64
+# re-derives automatically on lease renewal.
 #
-# Both pools bound on every VLAN so source-PBR can match either /64,
-# but advertise=yes ONLY on the primary pool per VLAN -- clients SLAAC
-# exactly one GUA per VLAN (the matching primary WAN's). Per-VLAN
-# policy:
-#   vlan10 (plumtree) -> sonic-pd advertised, mb-pd hidden
-#   vlan20/30/88      -> mb-pd advertised, sonic-pd hidden
+# All entries advertise=no -- the dynamic /ipv6 nd prefix entries that
+# would otherwise be auto-derived can't be `set`-mutated (the original
+# Phase C plan ran into this on 7.21.4; see LESSONS.md). Instead, RA
+# emission is driven by EXPLICIT static /ipv6 nd prefix entries (below)
+# with per-VLAN-per-pool preferred-lifetime bias, which IS settable
+# and is the mechanism Stage 4 will use for failover.
 #
-# Trade-off: no dual-GUA safety net during a single-WAN outage until
-# Stage 4 flips advertise= on the fallback pool. The original Phase C
-# plan (advertise both, deprecate via preferred-lifetime) wasn't
-# implementable on 7.21.4 -- see LESSONS.md.
+# Both pools stay bound on every VLAN so source-PBR can match either
+# /64. Clients get TWO GUAs per VLAN -- the primary pool's preferred,
+# the secondary pool's deprecated.
 /ipv6 address
-add from-pool=mb-pd    interface=vlan88 advertise=yes
+add from-pool=mb-pd    interface=vlan88 advertise=no
 add from-pool=mb-pd    interface=vlan10 advertise=no
-add from-pool=mb-pd    interface=vlan20 advertise=yes
-add from-pool=mb-pd    interface=vlan30 advertise=yes
+add from-pool=mb-pd    interface=vlan20 advertise=no
+add from-pool=mb-pd    interface=vlan30 advertise=no
 add from-pool=sonic-pd interface=vlan88 advertise=no
-add from-pool=sonic-pd interface=vlan10 advertise=yes
+add from-pool=sonic-pd interface=vlan10 advertise=no
 add from-pool=sonic-pd interface=vlan20 advertise=no
 add from-pool=sonic-pd interface=vlan30 advertise=no
+
+# --- RA prefix info per-VLAN per-pool (Phase C / Stage 3 v2) ---
+# Static /ipv6 nd prefix entries replace what would otherwise be the
+# auto-derived dynamic entries (suppressed via advertise=no above).
+# Each per-VLAN-per-pool entry carries an explicit preferred-lifetime
+# that biases client RFC-6724 source-address selection:
+#   preferred-lifetime=30m -> preferred for new flows
+#   preferred-lifetime=0s  -> deprecated (existing flows keep, new
+#                             flows pick the other GUA)
+#
+# Per-VLAN policy (steady state):
+#   vlan10 (plumtree) -> sonic-pd PREFERRED, mb-pd DEPRECATED
+#   vlan20/30/88      -> mb-pd PREFERRED, sonic-pd DEPRECATED
+#
+# Stage 4 Netwatch scripts will flip preferred-lifetime on these
+# entries on WAN-down events to migrate clients to the surviving GUA.
+#
+# Lifetime values (30m) are the CEILING; wan-reconciler reads the
+# current lease lifetime from /ipv6 pool and sets the static entry to
+# min(pool_lifetime, 30m). In normal operation the pool's lifetime is
+# hours-to-days (3d for MB lease, 6h for Sonic), gets clamped to 30m,
+# clients see 30m in every RA. If the lease ever drops below 30m
+# (lease expiring without renewal), clamp lets the smaller value
+# through -- clients see the realistic remaining lease. Net: address
+# persistence on clients is capped at 30m after RA loss, which gives
+# fast cleanup on /56 rotation while still comfortably surviving any
+# normal router reboot or apply outage.
+#
+# prefix= literals are bootstrap defaults matching the deterministic
+# RouterOS /64 allocation from each /56 (sequential by /ipv6 address
+# add order above: vlan88 gets the first /64, vlan10 the second, etc).
+# wan-reconciler reads the actually-bound /64 from /ipv6 address and
+# `set prefix=` if the /56 ever rotates.
+/ipv6 nd prefix
+add interface=vlan88 prefix=2607:f598:d488:6100::/64 preferred-lifetime=30m valid-lifetime=30m comment="auto-nd-vlan88-mb-pd"
+add interface=vlan88 prefix=2001:5a8:6a5:4600::/64   preferred-lifetime=0s  valid-lifetime=30m comment="auto-nd-vlan88-sonic-pd"
+add interface=vlan10 prefix=2607:f598:d488:6101::/64 preferred-lifetime=0s  valid-lifetime=30m comment="auto-nd-vlan10-mb-pd"
+add interface=vlan10 prefix=2001:5a8:6a5:4601::/64   preferred-lifetime=30m valid-lifetime=30m comment="auto-nd-vlan10-sonic-pd"
+add interface=vlan20 prefix=2607:f598:d488:6102::/64 preferred-lifetime=30m valid-lifetime=30m comment="auto-nd-vlan20-mb-pd"
+add interface=vlan20 prefix=2001:5a8:6a5:4602::/64   preferred-lifetime=0s  valid-lifetime=30m comment="auto-nd-vlan20-sonic-pd"
+add interface=vlan30 prefix=2607:f598:d488:6103::/64 preferred-lifetime=30m valid-lifetime=30m comment="auto-nd-vlan30-mb-pd"
+add interface=vlan30 prefix=2001:5a8:6a5:4603::/64   preferred-lifetime=0s  valid-lifetime=30m comment="auto-nd-vlan30-sonic-pd"
 
 # --- WAN default routes per routing table (Stage 2) ---
 # Six routes total (3 tables × 2 WANs):

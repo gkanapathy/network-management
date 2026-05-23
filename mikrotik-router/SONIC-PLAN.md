@@ -22,14 +22,24 @@ main-table flip to Sonic-primary applied at the same time. Stage 4
   `dst-address=192.168.0.0/16 → main` priority rule first catches
   reply + inter-VLAN traffic so it stays on connected routes.
 - **v6 PBR (Stage 3):** source-based per pool via `/routing rule`,
-  same shape as v4. ULA dst rule is static; per-pool /56 src/dst
-  rules are reconciler-managed (see below).
-- **v6 single-GUA per VLAN:** every VLAN binds *both* pools (so
-  source-PBR can match either) but only the primary pool sets
-  `advertise=yes`. Clients SLAAC exactly one GUA per VLAN — the
-  matching primary WAN's. Trade-off: no dual-GUA safety net during a
-  single-WAN outage until Stage 4 flips `advertise=` on the fallback
-  pool.
+  same shape as v4.
+- **v6 dual-GUA per VLAN with preferred-lifetime bias:** every VLAN
+  binds both pools (`/ipv6 address from-pool=… advertise=no` on
+  both — RA emission is driven by explicit static `/ipv6 nd prefix`
+  entries instead of the auto-derived dynamic ones, since dynamic
+  entries can't be `set`-mutated). Clients SLAAC TWO GUAs per VLAN
+  and apply RFC 6724 Rule 3: prefer non-deprecated. Per-VLAN policy
+  (steady state):
+  - vlan10 (plumtree) → sonic-pd preferred-lifetime=1w, mb-pd
+    preferred-lifetime=0s (deprecated)
+  - vlan20/30/88 → mb-pd preferred-lifetime=1w, sonic-pd
+    preferred-lifetime=0s (deprecated)
+  - valid-lifetime stays long (4w2d) on all so clients hold both
+    GUAs configured continuously.
+  Stage 4 Netwatch scripts will flip preferred-lifetime on these
+  entries on WAN-down to migrate clients to the surviving GUA on
+  the next RA — without DAD-wait, since clients already have the
+  fallback address provisioned.
 
 ### wan-reconciler (hybrid event-driven + polling)
 
@@ -51,8 +61,15 @@ find-then-add pattern would create duplicates.
 - **`/ipv6 route` gateway** for the six v6 default routes — declared
   with literal `<LL>%<interface>` as bootstrap. Tagged
   `comment="auto-v6-route-<table>-{pri|sec}-<wan>"`.
+- **`/ipv6 nd prefix` `prefix=`** for the eight RA prefix entries
+  (per-VLAN × per-pool) — declared with literal /64 as bootstrap.
+  Tagged `comment="auto-nd-<vlan>-<pool>"`. The reconciler keeps
+  `prefix=` in sync with what `/ipv6 address from-pool=…` actually
+  bound, in case the /56 ever rotates. `preferred-lifetime` is NOT
+  reconciler-managed in steady state (Stage 4 will manipulate it on
+  WAN-down events).
 
-The reconciler heals all three when the ISP rotates the underlying
+The reconciler heals all four when the ISP rotates the underlying
 value (PD /56, v4 next-hop, or upstream link-local).
 
 Triggered three ways (hybrid):
@@ -76,15 +93,14 @@ v4 next-hops and v6 upstream link-locals live in `config.rsc` only as
 bootstrap defaults that get healed by the reconciler when the ISP
 rotates them.
 
-## Stage 4 — Netwatch + dynamic `advertise=` flip (pending)
+## Stage 4 — Netwatch + dynamic `preferred-lifetime` flip (pending)
 
-**Goal:** v6 failover symmetric with v4 — primary WAN down toggles
-`/ipv6 address ... advertise=yes/no` on the affected VLAN so clients
-SLAAC the fallback pool's GUA on the next RA. Original SONIC-PLAN
-draft used `/ipv6 nd prefix preferred-lifetime` overrides; 7.21.4
-rejects `set` on dynamic prefix entries (Stage 3 post-mortem). The
-`advertise=yes/no` toggle on `/ipv6 address` works in steady state
-(Stage 3 confirmed) so Stage 4 reuses it dynamically.
+**Goal:** v6 failover symmetric with v4 — primary WAN down flips
+`preferred-lifetime` on the static `/ipv6 nd prefix` entries so the
+deprecated/preferred designation swaps. Clients applying RFC 6724
+Rule 3 migrate to the surviving GUA on the next RA. Since they
+already hold both addresses, there's no DAD wait — first packet on
+the new GUA goes out immediately.
 
 **`config.rsc` shape:**
 
@@ -98,26 +114,27 @@ rejects `set` on dynamic prefix entries (Stage 3 post-mortem). The
       interval=10s timeout=2s up-script=sonic-up down-script=sonic-down
   ```
 - `/system script`: four scripts (`mb-up`, `mb-down`, `sonic-up`,
-  `sonic-down`). Each flips `advertise=` on the affected `/ipv6
-  address` entries by `find interface=... from-pool=...` (both stable
-  across PD renewal, unlike the literal prefix). Example for
-  `sonic-down`:
+  `sonic-down`). Each flips `preferred-lifetime` on the affected
+  `/ipv6 nd prefix` entries by `find comment=auto-nd-<vlan>-<pool>`.
+  Example for `sonic-down` (vlan10 is the only VLAN whose primary
+  is Sonic):
   ```
-  /ipv6 address set [find interface=vlan10 from-pool=sonic-pd] advertise=no
-  /ipv6 address set [find interface=vlan10 from-pool=mb-pd]    advertise=yes
+  /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=0s
+  /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=1w
   ```
   `sonic-up` reverts; `mb-down` / `mb-up` are symmetric for
   vlan20/30/88.
-- Extend `wan-reconciler` to also re-assert `advertise=` based on
-  per-table route active state (`/ip route get [find …] active`).
-  Belt-and-suspenders against a missed Netwatch event.
+- Extend `wan-reconciler` to also re-assert `preferred-lifetime`
+  based on per-table route active state. Belt-and-suspenders against
+  a missed Netwatch event.
 - Tighten `/ipv6 nd min-rtr-adv-interval` on vlan10/20/30/88 to
   15–30s so RA-driven failover converges faster.
 
 **Verify:**
 
-- Manual trigger of `sonic-down` → `/ipv6 address print` shows the
-  flip on vlan10.
+- Manual trigger of `sonic-down` → `/ipv6 nd prefix print` shows
+  vlan10 sonic-pd entry `preferred-lifetime=0s` and mb-pd entry
+  `preferred-lifetime=1w`.
 - Pull Sonic SFP → within `check-gateway` window v4 plumtree falls
   to MB; within one Netwatch interval + one RA, plumtree v6 clients
   pick up the `mb-pd` GUA via SLAAC, source from it, egress via MB.
