@@ -26,11 +26,18 @@
 set name=plumtree-rtr
 
 # --- IP-stack hardening ---
-# Defconf doesn't touch /ip settings; defaults are too lax. Safe in a
-# single-WAN topology with no asymmetric routing — revisit when sonic
-# comes online and per-SSID failover may introduce asymmetry.
+# Defconf doesn't touch /ip settings; defaults are too lax. rp-filter
+# is `loose` (not strict) because we have legitimate asymmetric routing
+# now: guest/iot/mgmt VLANs egress MB via the `mb` table while `main`
+# defaults to Sonic, so the per-table reverse path doesn't always match
+# the ingress interface. Loose still catches packets whose src isn't
+# reachable via ANY of our interfaces (the anti-spoof / bogon role); it
+# just doesn't require src to be reachable via the SAME interface.
+# Strict was empirically working (conntrack-bypass on established
+# flows was masking the mismatch -- probed 2026-05-23) but loose
+# aligns the config with the actual multi-WAN reality.
 /ip settings
-set rp-filter=strict tcp-syncookies=yes send-redirects=no
+set rp-filter=loose tcp-syncookies=yes send-redirects=no
 
 # --- LEDs + reset-button-press toggle ---
 # Default: turn off the front-panel LEDs after 1h of uptime. Lets us
