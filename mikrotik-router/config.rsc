@@ -502,33 +502,40 @@ add name=wan-reconciler source={
 # Each *-down script handles the 2 VLANs whose primary is that WAN:
 #   sonic-{up,down} -> vlan10 (plumtree) + vlan88 (mgmt)
 #   mb-{up,down}    -> vlan20 (guest) + vlan30 (iot)
+#
+# policy=read,write,test,reboot: Netwatch invokes scripts as *sys with
+# its own policy envelope of {read,write,test,reboot}. Scripts with
+# any policy outside that set are refused with "not enough permissions"
+# (the default-on-add policy includes policy/password/sniff/sensitive
+# /ftp/romon, which exceeds netwatch's envelope -- so they MUST be
+# trimmed). See LESSONS.md.
 /system script
 :if ([:len [/system script find name=sonic-down]] > 0) do={ /system script remove [find name=sonic-down] }
 :if ([:len [/system script find name=sonic-up]]   > 0) do={ /system script remove [find name=sonic-up]   }
 :if ([:len [/system script find name=mb-down]]    > 0) do={ /system script remove [find name=mb-down]    }
 :if ([:len [/system script find name=mb-up]]      > 0) do={ /system script remove [find name=mb-up]      }
-add name=sonic-down source={
+add name=sonic-down policy=read,write,test,reboot source={
     :log info "sonic-down: deprecating sonic-pd on vlan10+vlan88, promoting mb-pd"
     /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=0s
     /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan88-sonic-pd] preferred-lifetime=0s
     /ipv6 nd prefix set [find comment=auto-nd-vlan88-mb-pd]    preferred-lifetime=30m
 }
-add name=sonic-up source={
+add name=sonic-up policy=read,write,test,reboot source={
     :log info "sonic-up: restoring sonic-pd preferred on vlan10+vlan88, deprecating mb-pd"
     /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=0s
     /ipv6 nd prefix set [find comment=auto-nd-vlan88-sonic-pd] preferred-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan88-mb-pd]    preferred-lifetime=0s
 }
-add name=mb-down source={
+add name=mb-down policy=read,write,test,reboot source={
     :log info "mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd"
     /ipv6 nd prefix set [find comment=auto-nd-vlan20-mb-pd]    preferred-lifetime=0s
     /ipv6 nd prefix set [find comment=auto-nd-vlan20-sonic-pd] preferred-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan30-mb-pd]    preferred-lifetime=0s
     /ipv6 nd prefix set [find comment=auto-nd-vlan30-sonic-pd] preferred-lifetime=30m
 }
-add name=mb-up source={
+add name=mb-up policy=read,write,test,reboot source={
     :log info "mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd"
     /ipv6 nd prefix set [find comment=auto-nd-vlan20-mb-pd]    preferred-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan20-sonic-pd] preferred-lifetime=0s

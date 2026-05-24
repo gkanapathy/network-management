@@ -197,6 +197,47 @@ per-probe via `packet-count` + `packet-interval`. For our setup we
 backstop it with a reconciler-driven self-heal pass that re-asserts
 state on the 10m polling tick.
 
+### Netwatch's script policy envelope is `{read,write,test,reboot}`
+
+Netwatch invokes `up-script` / `down-script` as `*sys`, and its caller
+envelope is exactly `{read, write, test, reboot}`. A script with ANY
+additional policy (`policy`, `password`, `sniff`, `sensitive`, `ftp`,
+`romon`) is refused with:
+
+```
+script,error could not run script <name>: not enough permissions
+script,error executing script from netwatch failed, please check it manually
+script,error,debug (netwatch:type: icmp, host: 1.1.1.1) not enough permissions to run script <name>
+```
+
+`/system script add` defaults to the full 10-policy set, which exceeds
+that envelope — so out-of-the-box, a netwatch-invoked script always
+fails the permission check. **Trim policy to the narrowest set the
+script actually uses** (typically `read,write,test,reboot` for an
+`/ipv6 nd prefix set` or similar config mutation):
+
+```
+add name=sonic-down policy=read,write,test,reboot source={ ... }
+```
+
+The error message is misleading — it reads as "the script lacks
+permissions" but the actual cause is "the script HAS too many
+permissions for the netwatch envelope". Same fix (trim policy) regardless.
+
+Alternative: `/system script set ... dont-require-permissions=yes`
+bypasses the check entirely, but the MikroTik docs explicitly call this
+out as less secure than trimming policy; do the trim.
+
+The form of `up-script=` doesn't matter — both bare `up-script=sonic-up`
+and explicit `up-script="/system script run sonic-up"` work once policy
+is correct. Both fail with the same error when policy is wrong.
+
+Surfaced 2026-05-23 testing Sonic Stage 4 failover. The diagnostic
+that pins the issue: `/system script run <name>` works from an admin
+SSH session (run-count increments, side effects land) but fails from
+netwatch context with the error above. That asymmetry rules out a
+body-level bug and points straight at the caller envelope.
+
 ### `:local` variable names cannot contain underscores
 
 `:local foo_bar 30m` errors with `Script Error: expected end of
