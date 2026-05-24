@@ -89,17 +89,17 @@ ssh-keygen -R "$ROUTER_HOST" >/dev/null 2>&1 || true
 
 attempt=0
 while true; do
-    if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new \
+    if ssh -o ConnectTimeout=1 -o StrictHostKeyChecking=accept-new \
            "$ROUTER" ":put alive; quit" 2>/dev/null | grep -q alive; then
         break
     fi
     attempt=$((attempt + 1))
-    if [ $attempt -gt 40 ]; then
-        echo "ERROR: router did not return within 2 minutes" >&2
+    if [ $attempt -gt 90 ]; then
+        echo "ERROR: router did not return within 3 minutes" >&2
         echo "       try the IPv6 link-local backdoor — see README.md Recovery" >&2
         exit 1
     fi
-    sleep 3
+    sleep 1
 done
 echo "    router back after $attempt polls"
 
