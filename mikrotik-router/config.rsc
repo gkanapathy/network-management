@@ -147,11 +147,11 @@ add address=fd7f:aee1:6ce0:30::1/64 interface=vlan30 advertise=yes
 # that needs RAs.
 /ipv6 nd
 set [find default=yes] disabled=yes
-# Stage 4: ra-interval tightened from default 3m20s-10m (200s-600s)
-# to 15s-30s so a Stage 4 preferred-lifetime flip reaches clients
-# within ~30s worst case (1 RA cycle). Modest multicast traffic.
-# Syntax is min-max with a hyphen; RouterOS displays/parses this
-# property as a single ra-interval=<min>-<max>.
+# ra-interval tightened from default 3m20s-10m (200s-600s) to
+# 15s-30s so a preferred-lifetime flip on WAN failover reaches
+# clients within ~30s worst case (one RA cycle). Modest multicast
+# traffic. Syntax is min-max with a hyphen; RouterOS displays/
+# parses this property as a single ra-interval=<min>-<max>.
 add interface=vlan88 advertise-dns=yes dns=fd7f:aee1:6ce0:88::1 ra-interval=15s-30s
 add interface=vlan10 advertise-dns=yes dns=fd7f:aee1:6ce0:10::1 ra-interval=15s-30s
 add interface=vlan20 advertise-dns=yes dns=fd7f:aee1:6ce0:20::1 ra-interval=15s-30s
@@ -246,8 +246,8 @@ add name=sonic fib
 #    and /ipv6 pool (per-VLAN-per-pool advertised /64; prefix rotates
 #    on /56 rotation, lifetimes track pool lease clamped at 30m)
 #  - /tool netwatch src-address against /ipv6 address from-pool=...
-#    eui-64=yes (Stage 4 v6 probe src; host part stable via EUI-64
-#    from pinned bridge MAC, only the prefix part rotates)
+#    eui-64=yes (v6 WAN-probe src; host part stable via EUI-64 from
+#    pinned bridge MAC, only the prefix part rotates)
 #
 # Triggered three ways (hybrid):
 #  - Event-driven: /ip dhcp-client and /ipv6 dhcp-client `script=`
@@ -380,9 +380,10 @@ add name=wan-reconciler source={
     # 30m (RAs stop refreshing the old prefix; valid counts down on
     # clients). Normal operation: pool's lifetime is hours/days, clamp
     # always trims it; if the lease ever drops below 30m, the smaller
-    # pool value passes through. Stage 4 territory is preferred-lifetime
-    # *value* (0s vs not); this reconciler doesn't override the 0s
-    # deprecation -- if the field is 0s, it stays 0s.
+    # pool value passes through. The preferred-lifetime *value*
+    # (0s vs not) is managed by the up/down scripts + ndPreferredReconcile;
+    # this reconciler doesn't override the 0s deprecation -- if the
+    # field is 0s, it stays 0s.
     :local v6NdReconcile do={
         :local vlanName $1
         :local poolName $2
@@ -440,13 +441,15 @@ add name=wan-reconciler source={
             }
         }
     }
-    # --- Stage 4 self-heal: re-assert preferred-lifetime alignment
-    # from current Netwatch probe status. Belt-and-suspenders against
-    # missed or failed Stage 4 script invocations -- if the event-
-    # driven scripts didn't fire (RouterOS bug, race, etc.) the next
-    # reconciler tick (10m) brings the network back into the right
-    # steady state. Idempotent: if state already correct, no writes.
-    :local stage4Heal do={
+    # --- nd-prefix preferred-lifetime reconciler: ensure each VLAN's
+    # /ipv6 nd prefix preferred-lifetime values agree with the current
+    # netwatch probe status. Belt-and-suspenders against the up/down
+    # scripts not firing (RouterOS bug, race, manual config drift,
+    # apply-day ordering glitches) -- the next reconciler tick (10m)
+    # brings the RA-advertised state back into line with what the
+    # netwatch probe believes about WAN health. Idempotent: if state
+    # is already correct, no writes.
+    :local ndPreferredReconcile do={
         :local vlanName $1
         :local preferredPool $2
         :local fallbackPool $3
@@ -460,28 +463,28 @@ add name=wan-reconciler source={
             :local cur [/ipv6 nd prefix get [find comment=$prefCmt] preferred-lifetime]
             :if ($cur = 0s) do={
                 /ipv6 nd prefix set [find comment=$prefCmt] preferred-lifetime=30m
-                :log warning ("wan-reconciler: STAGE4 self-heal promoted " . $prefCmt . " (probe up)")
+                :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $prefCmt . " 0s -> 30m (probe up)")
             }
             :set cur [/ipv6 nd prefix get [find comment=$fallCmt] preferred-lifetime]
             :if ($cur != 0s) do={
                 /ipv6 nd prefix set [find comment=$fallCmt] preferred-lifetime=0s
-                :log warning ("wan-reconciler: STAGE4 self-heal deprecated " . $fallCmt . " (primary up)")
+                :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $fallCmt . " -> 0s (probe up)")
             }
         }
         :if ($nwStatus = "down") do={
             :local cur [/ipv6 nd prefix get [find comment=$prefCmt] preferred-lifetime]
             :if ($cur != 0s) do={
                 /ipv6 nd prefix set [find comment=$prefCmt] preferred-lifetime=0s
-                :log warning ("wan-reconciler: STAGE4 self-heal deprecated " . $prefCmt . " (probe down)")
+                :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $prefCmt . " -> 0s (probe down)")
             }
             :set cur [/ipv6 nd prefix get [find comment=$fallCmt] preferred-lifetime]
             :if ($cur = 0s) do={
                 /ipv6 nd prefix set [find comment=$fallCmt] preferred-lifetime=30m
-                :log warning ("wan-reconciler: STAGE4 self-heal promoted " . $fallCmt . " (failing over)")
+                :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $fallCmt . " 0s -> 30m (probe down)")
             }
         }
     }
-    # --- netwatch src-address reconciler: keep each Stage 4 probe's
+    # --- netwatch src-address reconciler: keep each WAN-probe's
     # src-address in sync with the router's current host GUA in the
     # corresponding pool. The /ipv6 address entry (find by comment
     # "probe-src-<pool>") has eui-64=yes set, so its host part is
@@ -529,28 +532,28 @@ add name=wan-reconciler source={
     $v6NdReconcile "vlan20" "sonic-pd"
     $v6NdReconcile "vlan30" "mb-pd"
     $v6NdReconcile "vlan30" "sonic-pd"
-    # Update netwatch src-address BEFORE stage4Heal reads probe status,
-    # so a /56 rotation doesn't leave the probe pointing at a stale
-    # src for a full reconciler tick (10m) before getting healed.
+    # Update netwatch src-address BEFORE ndPreferredReconcile reads
+    # probe status, so a /56 rotation doesn't leave the probe pointing
+    # at a stale src for a full reconciler tick (10m) before catching up.
     $netwatchSrcReconcile "sonic-probe" "sonic-pd"
     $netwatchSrcReconcile "mb-probe"    "mb-pd"
-    # Stage 4 self-heal -- args: vlan, preferred-pool, fallback-pool, probe-comment
-    $stage4Heal "vlan10" "sonic-pd" "mb-pd"    "sonic-probe"
-    $stage4Heal "vlan88" "sonic-pd" "mb-pd"    "sonic-probe"
-    $stage4Heal "vlan20" "mb-pd"    "sonic-pd" "mb-probe"
-    $stage4Heal "vlan30" "mb-pd"    "sonic-pd" "mb-probe"
+    # nd preferred-lifetime reconcile -- args: vlan, preferred-pool, fallback-pool, probe-comment
+    $ndPreferredReconcile "vlan10" "sonic-pd" "mb-pd"    "sonic-probe"
+    $ndPreferredReconcile "vlan88" "sonic-pd" "mb-pd"    "sonic-probe"
+    $ndPreferredReconcile "vlan20" "mb-pd"    "sonic-pd" "mb-probe"
+    $ndPreferredReconcile "vlan30" "mb-pd"    "sonic-pd" "mb-probe"
 }
 
-# --- Stage 4 failover scripts (per-WAN up/down events) ---
+# --- Per-WAN failover scripts (up/down events) ---
 # Netwatch probes Cloudflare v6 anycast (2606:4700:4700::1111) from a
 # router host GUA in each pool; src-PBR steers via /routing rule. On
-# status transition, the appropriate script fires to flip
+# probe status transition, the appropriate script fires to flip
 # preferred-lifetime on the affected VLANs' /ipv6 nd prefix entries
 # -- clients receive the new RA, RFC 6724 Rule 3 makes them source
 # from the non-deprecated pool's GUA, traffic egresses via the
 # matching WAN. No DAD wait: clients already hold both GUAs from the
-# steady-state dual-GUA design (Stage 3 v2). See the netwatch block
-# below for the why-this-detects-failure design note.
+# dual-GUA design. See the netwatch block below for the
+# why-this-detects-failure design note.
 #
 # Each *-down script handles the 2 VLANs whose primary is that WAN:
 #   sonic-{up,down} -> vlan10 (plumtree) + vlan88 (mgmt)
@@ -660,11 +663,11 @@ add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix
 # link-local. /64 re-derives automatically on lease renewal.
 #
 # All entries advertise=no -- the dynamic /ipv6 nd prefix entries that
-# would otherwise be auto-derived can't be `set`-mutated (the original
-# Phase C plan ran into this on 7.21.4; see LESSONS.md). Instead, RA
-# emission is driven by EXPLICIT static /ipv6 nd prefix entries (below)
-# with per-VLAN-per-pool preferred-lifetime bias, which IS settable
-# and is the mechanism Stage 4 uses for failover.
+# would otherwise be auto-derived can't be `set`-mutated on 7.21.4
+# (see LESSONS.md). Instead, RA emission is driven by EXPLICIT static
+# /ipv6 nd prefix entries (below) with per-VLAN-per-pool
+# preferred-lifetime bias, which IS settable and is the mechanism the
+# up/down failover scripts use.
 #
 # Both pools stay bound on every VLAN so source-PBR can match either
 # /64. Clients get TWO GUAs per VLAN -- the primary pool's preferred,
@@ -701,7 +704,7 @@ add from-pool=sonic-pd interface=vlan30 advertise=no
 #   vlan10 (plumtree), vlan88 (mgmt) -> sonic-pd PREFERRED, mb-pd DEPRECATED
 #   vlan20 (guest), vlan30 (iot)     -> mb-pd PREFERRED, sonic-pd DEPRECATED
 #
-# Stage 4 Netwatch scripts will flip preferred-lifetime on these
+# The Netwatch up/down scripts flip preferred-lifetime on these
 # entries on WAN-down events to migrate clients to the surviving GUA.
 #
 # Lifetime values (30m) are the CEILING; wan-reconciler reads the
@@ -926,7 +929,7 @@ set enabled=no
     :log warning "config.rsc: /system scheduler add failed (cold-bootstrap device-mode reset?). Event-driven reconciler still active; re-enable scheduler via /system device-mode + button-confirm to restore polling."
 }
 
-# --- Stage 4 Netwatch probes ---
+# --- Netwatch WAN-reachability probes ---
 # Per-WAN reachability probes targeting Cloudflare's v6 anycast
 # 2606:4700:4700::1111. src-address is the router's own host GUA in
 # the named pool (eui-64=yes on the vlan88 from-pool entry above);
@@ -956,20 +959,20 @@ set enabled=no
 # /routing rule, hits the same d=1->d=2 fallthrough on WAN failure,
 # and gets the same reply-path-broken outcome. Probe state therefore
 # tracks "would a client on this pool be able to make a round-trip
-# right now?" -- the exact condition Stage 4 needs to detect.
+# right now?" -- the exact condition the up/down scripts need to fire on.
 #
-# Replaces the earlier v4 1.1.1.1 probe design which couldn't see a
+# Replaces an earlier v4 1.1.1.1 probe design which couldn't see a
 # Sonic-interface failure at all -- v4 probes from a LAN src get
 # NAT-masqueraded out the surviving WAN and reach 1.1.1.1 fine,
-# masking the failure (Bug A in the Stage 4 design pass).
+# masking the failure (see LESSONS.md, Bug A).
 #
 # packet-count=3 + packet-interval=500ms suppresses single-packet
 # noise: a probe is failed only if all 3 ICMP echoes time out within
 # ~2s. RouterOS 7.21.4 doesn't have loss-threshold (the N-consecutive
 # -probe-failures knob), so a single failed probe immediately fires
 # the down-script. False-fail risk is mitigated by Cloudflare's
-# stability + wan-reconciler's stage4Heal self-correcting on the
-# 10m tick.
+# stability + wan-reconciler's ndPreferredReconcile re-asserting
+# correct preferred-lifetime on the 10m tick.
 #
 # startup-delay=60s prevents premature firing while dhcp-clients are
 # still acquiring leases on apply-day.

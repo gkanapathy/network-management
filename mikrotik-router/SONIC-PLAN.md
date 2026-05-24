@@ -139,10 +139,11 @@ that v4 probes miss.
   refused; see [`LESSONS.md`](LESSONS.md)).
 - **`/ipv6 nd ra-interval=15s-30s`** per active VLAN — RA-driven
   failover converges within one RA cycle.
-- **`wan-reconciler`** extended with two Stage 4 passes:
+- **`wan-reconciler`** extended with two passes for failover state:
   `netwatchSrcReconcile` updates netwatch `src-address=` on /56
-  rotation; `stage4Heal` re-asserts `preferred-lifetime` from
-  current netwatch status, catching missed events on the 10m tick.
+  rotation; `ndPreferredReconcile` re-asserts `preferred-lifetime`
+  on `/ipv6 nd prefix` entries from the current netwatch probe
+  status, catching missed up/down-script invocations on the 10m tick.
 
 ### Verify
 
@@ -152,8 +153,9 @@ that v4 probes miss.
   `30m`. Re-enable: opposite, within ~15s of probe up.
 - `/system script run sonic-down` manually: same effect,
   bypasses the probe (verifies the script body in isolation).
-- `stage4Heal` self-heal: misset a `preferred-lifetime`, wait the
-  next 10m reconciler tick.
+- `ndPreferredReconcile` re-assertion: manually misset a
+  `preferred-lifetime`, wait the next 10m reconciler tick; it
+  should be restored to match the probe's current status.
 
 ## Stages 0–3 — applied 2026-05-21/22
 
