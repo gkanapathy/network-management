@@ -35,8 +35,16 @@ BACKUP_NAME=before-apply
 # ssh/scp -q suppresses OpenSSH client warnings ("post-quantum",
 # "store now", "may need to be upgraded") that flood every line on
 # RouterOS 7.21.4. RouterOS's own stdout/stderr passes through fine.
-SSH="ssh -q"
-SCP="scp -q"
+#
+# StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null bypass
+# known_hosts entirely: the apply is its own trust context (we just
+# rebooted our own router on a trusted LAN), and not bypassing
+# means pre-reset SSH would fail if a previous apply left a stale
+# entry, while ssh-keygen -R isn't reliable enough to clean up
+# (silently no-ops in sandboxed environments with read-only ~/.ssh).
+KH_BYPASS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+SSH="ssh -q $KH_BYPASS"
+SCP="scp -q $KH_BYPASS"
 
 # Run from the directory containing this script so relative paths
 # (config.rsc, snapshots/) resolve regardless of caller's cwd.
@@ -82,15 +90,10 @@ echo "==> APPLY (wipe-and-replay) — router will reboot"
 $SSH "$ROUTER" "/system reset-configuration no-defaults=yes skip-backup=yes keep-users=yes run-after-reset=$CONFIG" || true
 
 # === 4. wait for router ======================================================
-# The reset-configuration regenerates SSH host keys, so the next
-# connection would fail on host-key-changed. Clear our entry first.
 echo "==> polling for router (host key will rotate)"
-ssh-keygen -R "$ROUTER_HOST" >/dev/null 2>&1 || true
-
 attempt=0
 while true; do
-    if ssh -o ConnectTimeout=1 -o StrictHostKeyChecking=accept-new \
-           "$ROUTER" ":put alive; quit" 2>/dev/null | grep -q alive; then
+    if $SSH -o ConnectTimeout=1 "$ROUTER" ":put alive; quit" 2>/dev/null | grep -q alive; then
         break
     fi
     attempt=$((attempt + 1))
@@ -102,6 +105,13 @@ while true; do
     sleep 1
 done
 echo "    router back after $attempt polls"
+
+# Best-effort known_hosts refresh so interactive SSH outside apply.sh
+# doesn't trip over a stale host key. Failures (e.g., read-only ~/.ssh
+# in a sandboxed environment) are tolerated — the apply itself doesn't
+# depend on known_hosts being clean.
+ssh-keygen -R "$ROUTER_HOST" >/dev/null 2>&1 || true
+ssh-keyscan -T 5 -t ed25519 "$ROUTER_HOST" 2>/dev/null >> ~/.ssh/known_hosts 2>/dev/null || true
 
 # === 5. verify completion =====================================================
 # Give the log a moment to flush.
