@@ -8,6 +8,8 @@ and re-apply.
 ## Layout
 
 - `config.rsc` — target configuration. The whole router's intent.
+- `apply.sh` — apply runner: parse-check, backup, wipe-and-replay,
+  wait, verify completion. See [Apply](#apply).
 - `gkanapathy-mbpmx.pub` — admin SSH public key. Uploaded alongside
   `config.rsc` and imported by the script.
 - `snapshots/` — single pre-Sonic baseline `.rsc` for deep
@@ -22,43 +24,45 @@ and re-apply.
 
 ## Apply
 
-Routine apply only needs `config.rsc`. Files in `/file/` persist
-across `/system reset-configuration`, and `keep-users=yes` separately
-preserves admin's password and previously-imported SSH keys, so the
-script's key-import block is a no-op once the key is loaded. Cold
-bootstrap (button reset, netinstall) is a different path — see
-[Recovery](#recovery) — and is the only case that needs the `.pub`
-re-staged.
+Use [`apply.sh`](apply.sh):
 
 ```fish
-# 1. Pre-apply backup. Save it on the router, scp it down to snapshots/,
-#    then delete the on-router copy — backups belong in snapshots/, not
-#    on the router (where they accumulate as junk and aren't useful for
-#    recovery anyway, since wipe-and-replay starts from config.rsc).
-ssh admin@192.168.88.1 '/system backup save name=before-apply dont-encrypt=yes'
-scp admin@192.168.88.1:before-apply.backup snapshots/$(date -u +%Y-%m-%dT%H%M%SZ)-before-apply.backup
-ssh admin@192.168.88.1 '/file remove before-apply.backup'
-
-# 2. Stage source
-scp config.rsc admin@192.168.88.1:
-
-# 3. Pre-flight: parse-check the staged file. Fails fast on syntax errors
-#    (line-continuation glitches, unclosed quotes, etc.) WITHOUT mutating
-#    state. Catches roughly half of the script-aborts-mid-apply failures.
-#    Property-name typos still get past this — see Common pitfalls.
-ssh admin@192.168.88.1 ':parse [/file/get config.rsc contents]; :put "parse OK"'
-# Should print "parse OK" with no error. If it errors, fix and re-stage.
-
-# 4. Wipe + replay (keep-users preserves admin's password + ssh keys across the reset)
-ssh admin@192.168.88.1 '/system reset-configuration no-defaults=yes skip-backup=yes keep-users=yes run-after-reset=config.rsc'
+cd mikrotik-router
+./apply.sh                  # full apply
+./apply.sh --parse-only     # parse-check only, no destructive action
 ```
 
-The router reboots into a blank state and runs `config.rsc`. SSH should
-return within ~90s. **If it's not back inside ~2 min, assume the script
-aborted** — switch to the IPv6 link-local backdoor (see Recovery) and
-read `/log/print where message~"config.rsc"` to find the error. Don't
-keep waiting; the rb5009 boots fast and a long silence is a failure
-signal, not a slow boot. Verify:
+The script does:
+
+1. **scp `config.rsc`** to the router.
+2. **Parse-check** via `:parse` — catches syntax errors WITHOUT
+   mutating state. Aborts the script before anything destructive
+   if parse fails. (Property-name typos can still slip past this —
+   see [Common pitfalls](#common-pitfalls).)
+3. **Save a pre-apply backup**, scp it to `snapshots/<timestamp>-
+   before-apply.backup`, and **delete the on-router copy**
+   (backups belong in `snapshots/`, not on the router — they
+   accumulate as junk and aren't useful for recovery anyway, since
+   wipe-and-replay starts from `config.rsc`, not a backup restore).
+4. **Wipe + replay**: `/system reset-configuration no-defaults=yes
+   skip-backup=yes keep-users=yes run-after-reset=config.rsc`.
+   `keep-users=yes` preserves admin's password and imported SSH keys
+   so the routine apply doesn't need the `.pub` re-staged. Cold
+   bootstrap (button reset, netinstall) is the exception — see
+   [Recovery](#recovery).
+5. **Poll for the router to come back**. Clears the stale host-key
+   entry first (`/system reset-configuration` regenerates the SSH
+   host key). Times out after 2 minutes with a recovery pointer.
+6. **Verify `config.rsc: done` log marker** is present — catches the
+   "import aborted mid-script" failure mode (which the parse-check
+   in step 2 won't catch on its own; property-name and runtime
+   errors only show up at import time).
+
+If something goes wrong mid-apply and SSH-via-mgmt-VLAN stops
+working, the IPv6 link-local backdoor (see [Recovery](#recovery))
+covers most cases without needing a button-reset cold bootstrap.
+
+Manual verification after apply (these are not in the script):
 
 ```fish
 ssh admin@192.168.88.1 '/export hide-sensitive' > /tmp/router-now.rsc
@@ -67,17 +71,6 @@ diff -u config.rsc /tmp/router-now.rsc   # modulo /export's reformatting
 
 `/export` reorders and reformats sections, so a literal `diff` will never be
 clean — read it for substantive presence/absence, not line-by-line matches.
-
-### After a reset, the SSH host key changes
-
-`/system reset-configuration no-defaults=yes` regenerates the router's SSH
-host keys, so the first SSH after apply will fail with "REMOTE HOST
-IDENTIFICATION HAS CHANGED". Clear the old entry and reconnect:
-
-```fish
-ssh-keygen -R 192.168.88.1
-ssh admin@192.168.88.1
-```
 
 ### Apply log markers
 

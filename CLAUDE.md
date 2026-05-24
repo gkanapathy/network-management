@@ -13,6 +13,7 @@ omada-controller/     # all Omada-controller setups
 mikrotik-router/      # MikroTik rb5009 router — IaC-managed
   README.md           # workflow: how to apply, recover, schema-level gotchas
   config.rsc          # source of truth for the live router config
+  apply.sh            # apply runner: parse, backup, wipe-and-replay, verify
   IPV6-PLAN.md        # v6 design reference (Phases A + B-MB applied; Phase C is Sonic Stage 3)
   SONIC-PLAN.md       # staged Sonic WAN buildout (Stages 0-3 + wan-reconciler applied; 4 remains)
   LESSONS.md          # architectural lessons learned during the buildout
