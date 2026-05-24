@@ -148,8 +148,8 @@ verification probe" below.)
   interface-list.
 - Per-VLAN PBR via `/routing rule` source-based (NOT mangle — see
   [`SONIC-PLAN.md`](SONIC-PLAN.md) Stage 2 post-mortem):
-  - `vlan10` (plumtree) → `sonic`
-  - `vlan20` (guest), `vlan30` (iot), `vlan88` (mgmt) → `mb`
+  - `vlan10` (plumtree), `vlan88` (mgmt) → `sonic`
+  - `vlan20` (guest), `vlan30` (iot) → `mb`
 - Each routing table lists the *other* WAN at higher distance, so a
   primary-WAN failure fails through to secondary. `main` is
   Sonic-primary.

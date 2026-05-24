@@ -17,10 +17,11 @@ main-table flip to Sonic-primary applied at the same time. Stage 4
 - **`main` is Sonic-primary** — router-originated traffic (DNS, NTP)
   and any traffic that doesn't match a `/routing rule` src/dst rule
   prefers Sonic.
-- **v4 PBR (Stage 2):** per-VLAN source via `/routing rule`. plumtree
-  (`192.168.10.0/24`) → `sonic`; guest/iot/mgmt → `mb`. A
-  `dst-address=192.168.0.0/16 → main` priority rule first catches
-  reply + inter-VLAN traffic so it stays on connected routes.
+- **v4 PBR (Stage 2):** per-VLAN source via `/routing rule`.
+  plumtree (`192.168.10.0/24`) and mgmt (`192.168.88.0/24`) →
+  `sonic`; guest + iot → `mb`. A `dst-address=192.168.0.0/16 → main`
+  priority rule first catches reply + inter-VLAN traffic so it stays
+  on connected routes.
 - **v6 PBR (Stage 3):** source-based per pool via `/routing rule`,
   same shape as v4.
 - **v6 dual-GUA per VLAN with preferred-lifetime bias:** every VLAN
@@ -30,12 +31,13 @@ main-table flip to Sonic-primary applied at the same time. Stage 4
   entries can't be `set`-mutated). Clients SLAAC TWO GUAs per VLAN
   and apply RFC 6724 Rule 3: prefer non-deprecated. Per-VLAN policy
   (steady state):
-  - vlan10 (plumtree) → sonic-pd preferred-lifetime=1w, mb-pd
+  - vlan10 (plumtree), vlan88 (mgmt) → sonic-pd preferred, mb-pd
     preferred-lifetime=0s (deprecated)
-  - vlan20/30/88 → mb-pd preferred-lifetime=1w, sonic-pd
+  - vlan20 (guest), vlan30 (iot) → mb-pd preferred, sonic-pd
     preferred-lifetime=0s (deprecated)
-  - valid-lifetime stays long (4w2d) on all so clients hold both
-    GUAs configured continuously.
+  - preferred-lifetime / valid-lifetime on the preferred entry are
+    pool-derived (from /ipv6 pool) and clamped at 30m via the
+    reconciler; deprecated entries hold preferred-lifetime=0s.
   Stage 4 Netwatch scripts will flip preferred-lifetime on these
   entries on WAN-down to migrate clients to the surviving GUA on
   the next RA — without DAD-wait, since clients already have the
@@ -116,14 +118,15 @@ the new GUA goes out immediately.
 - `/system script`: four scripts (`mb-up`, `mb-down`, `sonic-up`,
   `sonic-down`). Each flips `preferred-lifetime` on the affected
   `/ipv6 nd prefix` entries by `find comment=auto-nd-<vlan>-<pool>`.
-  Example for `sonic-down` (vlan10 is the only VLAN whose primary
-  is Sonic):
+  Example for `sonic-down` (vlan10 + vlan88 have Sonic as primary):
   ```
   /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=0s
-  /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=1w
+  /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=30m
+  /ipv6 nd prefix set [find comment=auto-nd-vlan88-sonic-pd] preferred-lifetime=0s
+  /ipv6 nd prefix set [find comment=auto-nd-vlan88-mb-pd]    preferred-lifetime=30m
   ```
   `sonic-up` reverts; `mb-down` / `mb-up` are symmetric for
-  vlan20/30/88.
+  vlan20/30.
 - Extend `wan-reconciler` to also re-assert `preferred-lifetime`
   based on per-table route active state. Belt-and-suspenders against
   a missed Netwatch event.

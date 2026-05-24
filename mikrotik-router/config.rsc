@@ -540,8 +540,8 @@ add from-pool=sonic-pd interface=vlan30 advertise=no
 #                             flows pick the other GUA)
 #
 # Per-VLAN policy (steady state):
-#   vlan10 (plumtree) -> sonic-pd PREFERRED, mb-pd DEPRECATED
-#   vlan20/30/88      -> mb-pd PREFERRED, sonic-pd DEPRECATED
+#   vlan10 (plumtree), vlan88 (mgmt) -> sonic-pd PREFERRED, mb-pd DEPRECATED
+#   vlan20 (guest), vlan30 (iot)     -> mb-pd PREFERRED, sonic-pd DEPRECATED
 #
 # Stage 4 Netwatch scripts will flip preferred-lifetime on these
 # entries on WAN-down events to migrate clients to the surviving GUA.
@@ -563,8 +563,8 @@ add from-pool=sonic-pd interface=vlan30 advertise=no
 # wan-reconciler reads the actually-bound /64 from /ipv6 address and
 # `set prefix=` if the /56 ever rotates.
 /ipv6 nd prefix
-add interface=vlan88 prefix=2607:f598:d488:6100::/64 preferred-lifetime=30m valid-lifetime=30m comment="auto-nd-vlan88-mb-pd"
-add interface=vlan88 prefix=2001:5a8:6a5:4600::/64   preferred-lifetime=0s  valid-lifetime=30m comment="auto-nd-vlan88-sonic-pd"
+add interface=vlan88 prefix=2607:f598:d488:6100::/64 preferred-lifetime=0s  valid-lifetime=30m comment="auto-nd-vlan88-mb-pd"
+add interface=vlan88 prefix=2001:5a8:6a5:4600::/64   preferred-lifetime=30m valid-lifetime=30m comment="auto-nd-vlan88-sonic-pd"
 add interface=vlan10 prefix=2607:f598:d488:6101::/64 preferred-lifetime=0s  valid-lifetime=30m comment="auto-nd-vlan10-mb-pd"
 add interface=vlan10 prefix=2001:5a8:6a5:4601::/64   preferred-lifetime=30m valid-lifetime=30m comment="auto-nd-vlan10-sonic-pd"
 add interface=vlan20 prefix=2607:f598:d488:6102::/64 preferred-lifetime=30m valid-lifetime=30m comment="auto-nd-vlan20-mb-pd"
@@ -609,7 +609,7 @@ add dst-address=192.168.0.0/16  action=lookup table=main  comment="LAN dsts -> m
 add src-address=192.168.10.0/24 action=lookup table=sonic comment="plumtree -> sonic"
 add src-address=192.168.20.0/24 action=lookup table=mb    comment="guest -> mb"
 add src-address=192.168.30.0/24 action=lookup table=mb    comment="iot -> mb"
-add src-address=192.168.88.0/24 action=lookup table=mb    comment="mgmt -> mb"
+add src-address=192.168.88.0/24 action=lookup table=sonic comment="mgmt -> sonic"
 # --- Stage 3: v6 source-based PBR per pool ---
 # Same shape as v4 above (dst-LAN priority + per-pool src rules). The
 # entries referencing DHCPv6-PD-delegated /56 prefixes are declared

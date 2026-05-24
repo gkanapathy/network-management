@@ -72,14 +72,14 @@ router by hand — drift will get wiped on the next apply.
 - **Sonic WAN buildout** — Sonic line is live on `sfp-sfpplus1`
   (Stages 0–3 applied 2026-05-21/22; Sonic delivers DHCP/IPoE with
   IA_NA + IA_PD /56). Per-SSID PBR for both v4 and v6 is source-based
-  via `/routing rule`. Current routing — plumtree (v4 + v6) → Sonic
-  primary; guest/iot/mgmt (v4 + v6) → MB primary; `main` table →
-  Sonic primary too (router-originated traffic + any fall-through).
+  via `/routing rule`. Current routing — plumtree + mgmt (v4 + v6)
+  → Sonic primary; guest + iot (v4 + v6) → MB primary; `main` table
+  → Sonic primary too (router-originated traffic + any fall-through).
   v6 uses a dual-GUA-per-VLAN approach: both pools bound on every
   VLAN with `advertise=no`, RA emission driven by explicit static
-  `/ipv6 nd prefix` entries with `preferred-lifetime=1w` on the
-  primary pool and `preferred-lifetime=0s` (deprecated) on the
-  secondary. Clients SLAAC both, RFC 6724 Rule 3 picks the preferred
+  `/ipv6 nd prefix` entries with `preferred-lifetime=30m` (clamped
+  pool-derived) on the primary pool and `preferred-lifetime=0s`
+  (deprecated) on the secondary. Clients SLAAC both, RFC 6724 Rule 3 picks the preferred
   for new flows; Stage 4 will flip preferred-lifetime on WAN-down
   events to migrate clients to the surviving GUA without DAD wait. WAN-derived literals (PD
   /56s, v4 next-hops, v6 upstream link-locals) are kept in sync with
