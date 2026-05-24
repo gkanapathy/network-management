@@ -260,6 +260,47 @@ add name=wan-reconciler source={
             }
         }
     }
+    # --- Stage 4 self-heal: re-assert preferred-lifetime alignment
+    # from current Netwatch probe status. Belt-and-suspenders against
+    # missed or failed Stage 4 script invocations -- if the event-
+    # driven scripts didn't fire (RouterOS bug, race, etc.) the next
+    # reconciler tick (10m) brings the network back into the right
+    # steady state. Idempotent: if state already correct, no writes.
+    :local stage4Heal do={
+        :local vlanName $1
+        :local preferredPool $2
+        :local fallbackPool $3
+        :local probeComment $4
+        :local nwExisting [/tool netwatch find comment=$probeComment]
+        :if ([:len $nwExisting] = 0) do={ :return true }
+        :local nwStatus [/tool netwatch get [:pick $nwExisting 0] status]
+        :local prefCmt ("auto-nd-" . $vlanName . "-" . $preferredPool)
+        :local fallCmt ("auto-nd-" . $vlanName . "-" . $fallbackPool)
+        :if ($nwStatus = "up") do={
+            :local cur [/ipv6 nd prefix get [find comment=$prefCmt] preferred-lifetime]
+            :if ($cur = 0s) do={
+                /ipv6 nd prefix set [find comment=$prefCmt] preferred-lifetime=30m
+                :log warning ("wan-reconciler: STAGE4 self-heal promoted " . $prefCmt . " (probe up)")
+            }
+            :set cur [/ipv6 nd prefix get [find comment=$fallCmt] preferred-lifetime]
+            :if ($cur != 0s) do={
+                /ipv6 nd prefix set [find comment=$fallCmt] preferred-lifetime=0s
+                :log warning ("wan-reconciler: STAGE4 self-heal deprecated " . $fallCmt . " (primary up)")
+            }
+        }
+        :if ($nwStatus = "down") do={
+            :local cur [/ipv6 nd prefix get [find comment=$prefCmt] preferred-lifetime]
+            :if ($cur != 0s) do={
+                /ipv6 nd prefix set [find comment=$prefCmt] preferred-lifetime=0s
+                :log warning ("wan-reconciler: STAGE4 self-heal deprecated " . $prefCmt . " (probe down)")
+            }
+            :set cur [/ipv6 nd prefix get [find comment=$fallCmt] preferred-lifetime]
+            :if ($cur = 0s) do={
+                /ipv6 nd prefix set [find comment=$fallCmt] preferred-lifetime=30m
+                :log warning ("wan-reconciler: STAGE4 self-heal promoted " . $fallCmt . " (failing over)")
+            }
+        }
+    }
     $v6Reconcile "mb-pd"    "mb"    "mb"
     $v6Reconcile "sonic-pd" "sonic" "sonic"
     $v4Reconcile "ether2"       "mb"
@@ -272,6 +313,57 @@ add name=wan-reconciler source={
     $v6NdReconcile "vlan20" "sonic-pd"
     $v6NdReconcile "vlan30" "mb-pd"
     $v6NdReconcile "vlan30" "sonic-pd"
+    # Stage 4 self-heal -- args: vlan, preferred-pool, fallback-pool, probe-comment
+    $stage4Heal "vlan10" "sonic-pd" "mb-pd"    "sonic-probe"
+    $stage4Heal "vlan88" "sonic-pd" "mb-pd"    "sonic-probe"
+    $stage4Heal "vlan20" "mb-pd"    "sonic-pd" "mb-probe"
+    $stage4Heal "vlan30" "mb-pd"    "sonic-pd" "mb-probe"
+}
+
+# --- Stage 4 failover scripts (per-WAN up/down events) ---
+# Netwatch probes 1.1.1.1 via each WAN (src-address steers via
+# /routing rule). On status transition, the appropriate script fires
+# to flip preferred-lifetime on the affected VLANs' /ipv6 nd prefix
+# entries -- clients receive the new RA, RFC 6724 Rule 3 makes them
+# source from the non-deprecated pool's GUA, traffic egresses via the
+# matching WAN. No DAD wait: clients already hold both GUAs from the
+# steady-state dual-GUA design (Stage 3 v2).
+#
+# Each *-down script handles the 2 VLANs whose primary is that WAN:
+#   sonic-{up,down} -> vlan10 (plumtree) + vlan88 (mgmt)
+#   mb-{up,down}    -> vlan20 (guest) + vlan30 (iot)
+/system script
+:if ([:len [/system script find name=sonic-down]] > 0) do={ /system script remove [find name=sonic-down] }
+:if ([:len [/system script find name=sonic-up]]   > 0) do={ /system script remove [find name=sonic-up]   }
+:if ([:len [/system script find name=mb-down]]    > 0) do={ /system script remove [find name=mb-down]    }
+:if ([:len [/system script find name=mb-up]]      > 0) do={ /system script remove [find name=mb-up]      }
+add name=sonic-down source={
+    :log info "sonic-down: deprecating sonic-pd on vlan10+vlan88, promoting mb-pd"
+    /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=0s
+    /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan88-sonic-pd] preferred-lifetime=0s
+    /ipv6 nd prefix set [find comment=auto-nd-vlan88-mb-pd]    preferred-lifetime=30m
+}
+add name=sonic-up source={
+    :log info "sonic-up: restoring sonic-pd preferred on vlan10+vlan88, deprecating mb-pd"
+    /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=0s
+    /ipv6 nd prefix set [find comment=auto-nd-vlan88-sonic-pd] preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan88-mb-pd]    preferred-lifetime=0s
+}
+add name=mb-down source={
+    :log info "mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd"
+    /ipv6 nd prefix set [find comment=auto-nd-vlan20-mb-pd]    preferred-lifetime=0s
+    /ipv6 nd prefix set [find comment=auto-nd-vlan20-sonic-pd] preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan30-mb-pd]    preferred-lifetime=0s
+    /ipv6 nd prefix set [find comment=auto-nd-vlan30-sonic-pd] preferred-lifetime=30m
+}
+add name=mb-up source={
+    :log info "mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd"
+    /ipv6 nd prefix set [find comment=auto-nd-vlan20-mb-pd]    preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan20-sonic-pd] preferred-lifetime=0s
+    /ipv6 nd prefix set [find comment=auto-nd-vlan30-mb-pd]    preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan30-sonic-pd] preferred-lifetime=0s
 }
 
 # --- timezone + NTP ---
@@ -375,10 +467,15 @@ add address=fd7f:aee1:6ce0:30::1/64 interface=vlan30 advertise=yes
 # that needs RAs.
 /ipv6 nd
 set [find default=yes] disabled=yes
-add interface=vlan88 advertise-dns=yes dns=fd7f:aee1:6ce0:88::1
-add interface=vlan10 advertise-dns=yes dns=fd7f:aee1:6ce0:10::1
-add interface=vlan20 advertise-dns=yes dns=fd7f:aee1:6ce0:20::1
-add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1
+# Stage 4: ra-interval tightened from default 3m20s-10m (200s-600s)
+# to 15s-30s so a Stage 4 preferred-lifetime flip reaches clients
+# within ~30s worst case (1 RA cycle). Modest multicast traffic.
+# Syntax is min-max with a hyphen; RouterOS displays/parses this
+# property as a single ra-interval=<min>-<max>.
+add interface=vlan88 advertise-dns=yes dns=fd7f:aee1:6ce0:88::1 ra-interval=15s-30s
+add interface=vlan10 advertise-dns=yes dns=fd7f:aee1:6ce0:10::1 ra-interval=15s-30s
+add interface=vlan20 advertise-dns=yes dns=fd7f:aee1:6ce0:20::1 ra-interval=15s-30s
+add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1 ra-interval=15s-30s
 
 # --- admin SSH key (cold-bootstrap only) ---
 # Routine reset-configuration with keep-users=yes preserves /user/ssh-keys
@@ -767,5 +864,27 @@ set enabled=no
 } on-error={
     :log warning "config.rsc: /system scheduler add failed (cold-bootstrap device-mode reset?). Event-driven reconciler still active; re-enable scheduler via /system device-mode + button-confirm to restore polling."
 }
+
+# --- Stage 4 Netwatch probes ---
+# Per-WAN reachability probes targeting 1.1.1.1. src-address steers
+# each probe via the /routing rule chain through the named WAN:
+#   sonic-probe src=192.168.10.1 (plumtree -> sonic table)
+#   mb-probe    src=192.168.20.1 (guest    -> mb table)
+# These VLANs are structurally stable in their WAN policy (plumtree
+# always Sonic-primary by convention, guest always MB).
+#
+# packet-count=3 + packet-interval=500ms suppresses single-packet
+# noise: a probe is failed only if all 3 ICMP echoes time out within
+# ~2s. RouterOS 7.21.4 doesn't have loss-threshold (the N-consecutive
+# -probe-failures knob), so a single failed probe immediately fires
+# the down-script. False-fail risk is mitigated by 1.1.1.1's
+# stability + the wan-reconciler's stage4Heal self-correcting on the
+# 10m tick.
+#
+# startup-delay=60s prevents premature firing while dhcp-clients are
+# still acquiring leases on apply-day.
+/tool netwatch
+add comment=sonic-probe type=icmp host=1.1.1.1 src-address=192.168.10.1 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=sonic-up down-script=sonic-down
+add comment=mb-probe    type=icmp host=1.1.1.1 src-address=192.168.20.1 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=mb-up    down-script=mb-down
 
 :log info "config.rsc: done"

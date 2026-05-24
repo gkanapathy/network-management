@@ -165,6 +165,38 @@ This drove the Stage 3 design from "dual-GUA with hopeful
 RFC-6724-based source selection" to "advertise only the matching
 pool's GUA per VLAN, with source-PBR enforcing it server-side."
 
+### Netwatch on 7.21.4 — what params actually exist
+
+The Netwatch docs and many third-party guides list parameters that
+turn out NOT to exist on 7.21.4:
+
+- `routing-table=` — **no.** Probes can't be steered through a
+  specific routing table directly. Use `src-address=` and rely on
+  the `/routing rule` chain.
+- `interface=` — **no.** Same story; use `src-address=`.
+- `loss-threshold=` — **no.** The "require N consecutive probe
+  failures before firing the down-script" knob isn't in 7.21.4. Any
+  single failed probe fires immediately.
+- `down-time=` / `test-script=` — **no.**
+
+What IS there (verified by add-then-print-detail):
+
+- `host`, `type`, `interval`, `timeout`, `src-address`, `packet-count`,
+  `packet-interval`, `startup-delay`, `up-script`, `down-script`,
+  `comment`, `disabled`.
+
+Lesson: `/tool netwatch add ?` doesn't list params on 7.21.4
+("expected end of command"). The reliable way to verify a param is
+real is `:do { /tool netwatch add ... <param>=<value> }; print
+detail` — if the param shows in the printed entry, it exists. The
+`:do/on-error` wrapper alone doesn't catch parameter-name-rejection
+cleanly enough.
+
+Flap protection without `loss-threshold` is limited to multi-packet-
+per-probe via `packet-count` + `packet-interval`. For our setup we
+backstop it with a reconciler-driven self-heal pass that re-asserts
+state on the 10m polling tick.
+
 ### `:local` variable names cannot contain underscores
 
 `:local foo_bar 30m` errors with `Script Error: expected end of

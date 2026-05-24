@@ -89,7 +89,12 @@ router by hand — drift will get wiped on the next apply.
   belt-and-suspenders), and natural apply-day bootstrap via first
   dhcp-client bind. Staged rollout in
   [mikrotik-router/SONIC-PLAN.md](mikrotik-router/SONIC-PLAN.md);
-  remaining: Stage 4 Netwatch + advertise-flip on WAN-down.
+  Stage 4 Netwatch failover applied 2026-05-23: per-WAN
+  `1.1.1.1` probes (src-PBR'd through each table) fire `*-up`/
+  `*-down` scripts that flip preferred-lifetime, migrating clients
+  to the surviving GUA on the next RA without DAD wait. The
+  reconciler also self-heals preferred-lifetime alignment from
+  Netwatch status on each tick.
 - **Diagnose Wi-Fi bufferbloat / latency under load on the EAPs.** Sustained
   ping spikes during saturating Wi-Fi traffic suggest queueing somewhere
   in the AP→client path. First isolate: ping a LAN target from a wired
