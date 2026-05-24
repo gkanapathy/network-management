@@ -18,6 +18,22 @@
 #   - guest fully isolated from internal (all LAN VLANs blocked, WAN allowed)
 #   - iot one-way: plumtree -> iot allowed; iot -> plumtree only on est/related
 #   - iot blocked from mgmt, guest
+#
+# Ordering (top to bottom):
+#   1. Identity + IP-stack settings (low risk)
+#   2. Timekeeping (set early so log timestamps are correct)
+#   3. Lockout-safety prereqs: bridge / VLAN / addresses / SSH / service
+#   4. vlan-filtering=yes  <-- LOCKOUT-SAFETY GATE: SSH is locked in past here
+#   5. Routing tables + script definitions (large blocks; risky parse)
+#   6. DHCP + per-pool addresses + routes (depend on scripts above)
+#   7. DNS + firewall
+#   8. Service surface
+#   9. Automation: scheduler + Netwatch
+#   10. Cosmetic: LEDs + reset-button binding (at the end so a failure
+#       above doesn't leave LEDs in a confusing state)
+# Errors below the gate (step 4) don't lock us out: SSH-via-mgmt-VLAN
+# (and IPv6-LL backdoor) keeps working, so the fix-and-reapply loop
+# doesn't need a button-reset cold bootstrap.
 
 :log info "config.rsc: starting"
 
@@ -36,33 +52,187 @@ set name=plumtree-rtr
 /ip settings
 set rp-filter=loose tcp-syncookies=yes send-redirects=no
 
-# --- LEDs + reset-button-press toggle ---
-# Default: turn off the front-panel LEDs after 1h of uptime. Lets us
-# see boot health visually for the first hour, then dark.
-/system leds settings
-set all-leds-off=after-1h
+# --- timezone + NTP ---
+# Set early so any subsequent /log entries (including errors in
+# lockout-prereq blocks below) are timestamped in local time. NTP
+# config is harmless before WAN is up -- the client just sits idle
+# until DHCP binds a route.
+# Pin time-zone explicitly; turn off autodetect (which uses IP-geolocation
+# via a MikroTik service over the WAN). Router is stationary, so we don't
+# need autodetect, and pinning avoids a surprise override if the geo
+# lookup ever decides we're somewhere else.
+/system clock
+set time-zone-autodetect=no time-zone-name=America/Los_Angeles
+# NTP via Cloudflare + Google anycast. Defaults to unicast mode.
+/system ntp client
+set enabled=yes servers=time.cloudflare.com,time.google.com
 
-# Bind a brief (<2s) press of the front Reset button — only while
-# RouterOS is running, so it doesn't interfere with the boot-time
-# factory-reset / netinstall behavior — to a script that toggles the
-# LEDs between "on permanently" (never) and "off immediately"
-# (immediate). Useful for visual inspection without re-applying config.
-# The toggle persists until the next reset+replay, which restores
-# all-leds-off=after-1h.
-/system script
-:if ([:len [/system/script/find name=toggle-leds]] > 0) do={
-    /system/script/remove [find name=toggle-leds]
-}
-add name=toggle-leds source={
-    :local cur [/system/leds/settings/get all-leds-off]
-    :if ($cur = "never") do={
-        /system/leds/settings/set all-leds-off=immediate
+# --- bridge (vlan-filtering enabled below the lockout-safety gate) ---
+/interface bridge
+add admin-mac=04:F4:1C:51:BA:D8 auto-mac=no name=bridge
+
+# --- bridge ports ---
+# ether1 = trunk, others = access ports on VLAN 88. PVID=88 stamps untagged ingress.
+# Access ports get bpdu-guard=yes edge=yes: a downstream device sending BPDUs
+# (rogue switch / malicious endpoint) gets the port disabled instantly. ether1
+# is the trunk to the AP and intentionally not bpdu-guarded — the AP could
+# legitimately speak STP.
+/interface bridge port
+add bridge=bridge interface=ether1 pvid=88 comment="trunk to root AP"
+add bridge=bridge interface=ether3 pvid=88 bpdu-guard=yes edge=yes
+add bridge=bridge interface=ether4 pvid=88 bpdu-guard=yes edge=yes
+add bridge=bridge interface=ether5 pvid=88 bpdu-guard=yes edge=yes
+add bridge=bridge interface=ether6 pvid=88 bpdu-guard=yes edge=yes
+add bridge=bridge interface=ether7 pvid=88 bpdu-guard=yes edge=yes
+add bridge=bridge interface=ether8 pvid=88 bpdu-guard=yes edge=yes
+
+# --- VLAN L3 sub-interfaces on the bridge ---
+# All L3 (including mgmt) lives on /interface vlan; nothing on bridge directly.
+# When vlan-filtering=yes, frames tagged with VID X reach IP only via the matching
+# /interface vlan VID=X. Putting an IP on the bridge interface itself would never
+# receive tagged-on-bridge VLAN traffic.
+/interface vlan
+add interface=bridge name=vlan88 vlan-id=88 comment=mgmt
+add interface=bridge name=vlan10 vlan-id=10 comment=plumtree
+add interface=bridge name=vlan20 vlan-id=20 comment=guest
+add interface=bridge name=vlan30 vlan-id=30 comment=iot
+
+# --- bridge VLAN table ---
+# VLAN 88 (mgmt): tagged on bridge (CPU), untagged on all access + trunk
+# VLAN 10/20/30:  tagged on bridge + ether1 (trunk only); other ports never see them
+/interface bridge vlan
+add bridge=bridge tagged=bridge,ether1 vlan-ids=10
+add bridge=bridge tagged=bridge,ether1 vlan-ids=20
+add bridge=bridge tagged=bridge,ether1 vlan-ids=30
+add bridge=bridge tagged=bridge untagged=ether1,ether3,ether4,ether5,ether6,ether7,ether8 vlan-ids=88
+
+# --- interface lists ---
+# LAN list drives input firewall + inter-VLAN drops. All four VLAN sub-interfaces.
+/interface list
+add name=WAN
+add name=LAN
+/interface list member
+add interface=vlan88 list=LAN
+add interface=vlan10 list=LAN
+add interface=vlan20 list=LAN
+add interface=vlan30 list=LAN
+add interface=ether2 list=WAN
+add interface=sfp-sfpplus1 list=WAN
+
+# --- L3 addresses (all on VLAN sub-interfaces) ---
+/ip address
+add address=192.168.88.1/24 interface=vlan88 network=192.168.88.0
+add address=192.168.10.1/24 interface=vlan10 network=192.168.10.0
+add address=192.168.20.1/24 interface=vlan20 network=192.168.20.0
+add address=192.168.30.1/24 interface=vlan30 network=192.168.30.0
+
+# --- IPv6 ULA addresses (Phase A — no ISP dependency) ---
+# ULA /48: fd7f:aee1:6ce0::/48 — RFC 4193 random, generated 2026-05-08.
+# Subnet ID is VLAN-ID-as-hex (mnemonic only): :88::/64 = mgmt, :10::/64 =
+# plumtree, etc. The hex digits happen to mirror the decimal VLAN IDs;
+# they are not a numeric encoding (e.g., :10:: is hex 0x10 = dec 16).
+# advertise=yes makes the prefix appear in RAs (paired with /ipv6 nd below).
+/ipv6 address
+add address=fd7f:aee1:6ce0:88::1/64 interface=vlan88 advertise=yes
+add address=fd7f:aee1:6ce0:10::1/64 interface=vlan10 advertise=yes
+add address=fd7f:aee1:6ce0:20::1/64 interface=vlan20 advertise=yes
+add address=fd7f:aee1:6ce0:30::1/64 interface=vlan30 advertise=yes
+
+# --- IPv6 RA + RDNSS per VLAN (Phase A) ---
+# Hosts SLAAC from the advertised /64; RDNSS points at the router's per-VLAN
+# ULA ::1 so DNS lookups stay on-VLAN (no inter-VLAN firewall hop). Same role
+# as IPv4 dhcp-server-network "dns-server=<gateway>".
+# Default rule (interface=all) is disabled to avoid overlap with the explicit
+# per-VLAN rules below; we'll add explicit rules for any future interface
+# that needs RAs.
+/ipv6 nd
+set [find default=yes] disabled=yes
+# Stage 4: ra-interval tightened from default 3m20s-10m (200s-600s)
+# to 15s-30s so a Stage 4 preferred-lifetime flip reaches clients
+# within ~30s worst case (1 RA cycle). Modest multicast traffic.
+# Syntax is min-max with a hyphen; RouterOS displays/parses this
+# property as a single ra-interval=<min>-<max>.
+add interface=vlan88 advertise-dns=yes dns=fd7f:aee1:6ce0:88::1 ra-interval=15s-30s
+add interface=vlan10 advertise-dns=yes dns=fd7f:aee1:6ce0:10::1 ra-interval=15s-30s
+add interface=vlan20 advertise-dns=yes dns=fd7f:aee1:6ce0:20::1 ra-interval=15s-30s
+add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1 ra-interval=15s-30s
+
+# --- admin SSH key (cold-bootstrap only) ---
+# Routine reset-configuration with keep-users=yes preserves /user/ssh-keys
+# from the previous apply, so re-importing each time would just be churn —
+# and /user/ssh-keys/import consumes the .pub on success, forcing a re-scp
+# every apply. Skip when the key is already loaded; only import on cold
+# bootstrap (factory button reset / netinstall) where the user db starts
+# empty. To rotate the key: SSH in, /user/ssh-keys/remove [find user=admin],
+# scp the new .pub, then re-apply.
+:if ([:len [/user/ssh-keys/find user=admin]] > 0) do={
+    :log info "config.rsc: admin ssh key already present, skipping import"
+} else={
+    :if ([:len [/file/find name=gkanapathy-mbpmx.pub]] > 0) do={
+        /user/ssh-keys/import public-key-file=gkanapathy-mbpmx.pub user=admin
+        :log info "config.rsc: ssh key imported (cold bootstrap)"
     } else={
-        /system/leds/settings/set all-leds-off=never
+        :log warning "config.rsc: no admin ssh key registered and gkanapathy-mbpmx.pub absent; password fallback only"
     }
 }
-/system routerboard reset-button
-set enabled=yes hold-time=0s..2s on-event=toggle-leds
+
+# SSH server hardening + behavior:
+# - password-authentication=yes: keep password fallback while we iterate.
+#   RouterOS default is `yes-if-no-key`, which rejects passwords once a user
+#   has any registered key. Tighten back later.
+# - strong-crypto=yes: prefer modern ciphers/MACs/KEX. Doesn't add
+#   post-quantum KEX (RouterOS 7.21.4 has none), so OpenSSH 9.x will still
+#   warn about "store now, decrypt later"; that warning won't go away until
+#   MikroTik ships PQ-KEX support upstream.
+# - host-key-type=ed25519: smaller, faster, modern key.
+# - host-key-size=4096: dormant for ed25519, only matters if anyone ever
+#   flips host-key-type back to rsa; cheap to set.
+# - forwarding-enabled=no: refuse SSH-tunnel/jump-host use of the router.
+# - regenerate-host-key: explicit rotation. Apply flow already does
+#   `ssh-keygen -R`, so the new fingerprint is no surprise.
+# Note: there is no `max-auth-tries` property on /ip ssh in 7.21.4 (that's
+# OpenSSH's MaxAuthTries). Brute-force resistance lives elsewhere — we
+# rely on key-only auth + service `address=` scoping below.
+/ip ssh
+set password-authentication=yes strong-crypto=yes host-key-type=ed25519 host-key-size=4096 forwarding-enabled=no
+/ip ssh regenerate-host-key
+
+# --- service surface ---
+# Lock down management services. Bind interactive surfaces to mgmt+plumtree
+# only (plus IPv6 link-local so README.md's recovery path stays usable);
+# disable everything else.
+# - /ip service `address=` applies to both IPv4 and IPv6 sources, so an
+#   IPv4-only list would silently fence off IPv6 link-local recovery.
+# - api-ssl is disabled by default (no cert); not setting it.
+/ip service
+set telnet disabled=yes
+set ftp    disabled=yes
+set api    disabled=yes
+set ssh    address=192.168.88.0/24,192.168.10.0/24,fe80::/10
+set winbox address=192.168.88.0/24,192.168.10.0/24,fe80::/10
+set www    address=192.168.88.0/24,192.168.10.0/24,fe80::/10
+
+# === LOCKOUT-SAFETY GATE =====================================================
+# vlan-filtering=yes — past this point SSH-via-mgmt-VLAN (and IPv6 link-local
+# backdoor) is locked in. If any block below errors during /import and aborts
+# the script, basic management access still works; the fix-and-reapply cycle
+# doesn't need a button-reset cold bootstrap.
+#
+# Hard prereq is /interface bridge vlan above, which populates the
+# per-port-per-VID table that vlan-filtering enforces.
+/interface bridge
+set [find name=bridge] vlan-filtering=yes
+# === END LOCKOUT-SAFETY GATE =================================================
+
+# --- routing tables for Stage 2 source-based PBR ---
+# mb and sonic are selected by /routing rule (below) based on
+# src-address per LAN VLAN. Each table carries both 0.0.0.0/0 entries
+# (local WAN d=1, other WAN d=2) so a WAN failure falls through within
+# the table. `fib` is a FLAG here, not `fib=yes` — the property form
+# aborts the import (see README pitfalls).
+/routing table
+add name=mb    fib
+add name=sonic fib
 
 # --- wan-reconciler: reconciles WAN-derived config from live DHCP state ---
 # Single script, idempotent, comment-tagged identifiers. Reconciles:
@@ -87,10 +257,10 @@ set enabled=yes hold-time=0s..2s on-event=toggle-leds
 #  - /ipv6 route comment="auto-v6-route-<table>-<pri|sec>-<wan>"
 # Don't reuse those comment strings elsewhere.
 #
-# Defined here (before /ip dhcp-client) so the named script exists
-# when dhcp-client's `script=` property gets set during import --
-# otherwise there's a race where the dhcp-client could bind and call a
-# script that doesn't exist yet.
+# Defined here (after the lockout-safety gate, before /ip dhcp-client
+# below) so the named script exists when dhcp-client's `script=`
+# property gets set during import -- otherwise there's a race where
+# the dhcp-client could bind and call a script that doesn't exist yet.
 /system script
 :if ([:len [/system script find name=wan-reconciler]] > 0) do={
     /system script remove [find name=wan-reconciler]
@@ -365,184 +535,6 @@ add name=mb-up source={
     /ipv6 nd prefix set [find comment=auto-nd-vlan30-mb-pd]    preferred-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan30-sonic-pd] preferred-lifetime=0s
 }
-
-# --- timezone + NTP ---
-# Pin time-zone explicitly; turn off autodetect (which uses IP-geolocation
-# via a MikroTik service over the WAN). Router is stationary, so we don't
-# need autodetect, and pinning avoids a surprise override if the geo
-# lookup ever decides we're somewhere else.
-/system clock
-set time-zone-autodetect=no time-zone-name=America/Los_Angeles
-# NTP via Cloudflare + Google anycast. Defaults to unicast mode.
-/system ntp client
-set enabled=yes servers=time.cloudflare.com,time.google.com
-
-# --- bridge (vlan-filtering enabled at the END after VLAN table is populated) ---
-/interface bridge
-add admin-mac=04:F4:1C:51:BA:D8 auto-mac=no name=bridge
-
-# --- bridge ports ---
-# ether1 = trunk, others = access ports on VLAN 88. PVID=88 stamps untagged ingress.
-# Access ports get bpdu-guard=yes edge=yes: a downstream device sending BPDUs
-# (rogue switch / malicious endpoint) gets the port disabled instantly. ether1
-# is the trunk to the AP and intentionally not bpdu-guarded — the AP could
-# legitimately speak STP.
-/interface bridge port
-add bridge=bridge interface=ether1 pvid=88 comment="trunk to root AP"
-add bridge=bridge interface=ether3 pvid=88 bpdu-guard=yes edge=yes
-add bridge=bridge interface=ether4 pvid=88 bpdu-guard=yes edge=yes
-add bridge=bridge interface=ether5 pvid=88 bpdu-guard=yes edge=yes
-add bridge=bridge interface=ether6 pvid=88 bpdu-guard=yes edge=yes
-add bridge=bridge interface=ether7 pvid=88 bpdu-guard=yes edge=yes
-add bridge=bridge interface=ether8 pvid=88 bpdu-guard=yes edge=yes
-
-# --- VLAN L3 sub-interfaces on the bridge ---
-# All L3 (including mgmt) lives on /interface vlan; nothing on bridge directly.
-# When vlan-filtering=yes, frames tagged with VID X reach IP only via the matching
-# /interface vlan VID=X. Putting an IP on the bridge interface itself would never
-# receive tagged-on-bridge VLAN traffic.
-/interface vlan
-add interface=bridge name=vlan88 vlan-id=88 comment=mgmt
-add interface=bridge name=vlan10 vlan-id=10 comment=plumtree
-add interface=bridge name=vlan20 vlan-id=20 comment=guest
-add interface=bridge name=vlan30 vlan-id=30 comment=iot
-
-# --- bridge VLAN table ---
-# VLAN 88 (mgmt): tagged on bridge (CPU), untagged on all access + trunk
-# VLAN 10/20/30:  tagged on bridge + ether1 (trunk only); other ports never see them
-/interface bridge vlan
-add bridge=bridge tagged=bridge,ether1 vlan-ids=10
-add bridge=bridge tagged=bridge,ether1 vlan-ids=20
-add bridge=bridge tagged=bridge,ether1 vlan-ids=30
-add bridge=bridge tagged=bridge untagged=ether1,ether3,ether4,ether5,ether6,ether7,ether8 vlan-ids=88
-
-# --- interface lists ---
-# LAN list drives input firewall + inter-VLAN drops. All four VLAN sub-interfaces.
-/interface list
-add name=WAN
-add name=LAN
-/interface list member
-add interface=vlan88 list=LAN
-add interface=vlan10 list=LAN
-add interface=vlan20 list=LAN
-add interface=vlan30 list=LAN
-add interface=ether2 list=WAN
-add interface=sfp-sfpplus1 list=WAN
-
-# --- routing tables for Stage 2 source-based PBR ---
-# mb and sonic are selected by /routing rule (below) based on
-# src-address per LAN VLAN. Each table carries both 0.0.0.0/0 entries
-# (local WAN d=1, other WAN d=2) so a WAN failure falls through within
-# the table. `fib` is a FLAG here, not `fib=yes` — the property form
-# aborts the import (see README pitfalls).
-/routing table
-add name=mb    fib
-add name=sonic fib
-
-# --- L3 addresses (all on VLAN sub-interfaces) ---
-/ip address
-add address=192.168.88.1/24 interface=vlan88 network=192.168.88.0
-add address=192.168.10.1/24 interface=vlan10 network=192.168.10.0
-add address=192.168.20.1/24 interface=vlan20 network=192.168.20.0
-add address=192.168.30.1/24 interface=vlan30 network=192.168.30.0
-
-# --- IPv6 ULA addresses (Phase A — no ISP dependency) ---
-# ULA /48: fd7f:aee1:6ce0::/48 — RFC 4193 random, generated 2026-05-08.
-# Subnet ID is VLAN-ID-as-hex (mnemonic only): :88::/64 = mgmt, :10::/64 =
-# plumtree, etc. The hex digits happen to mirror the decimal VLAN IDs;
-# they are not a numeric encoding (e.g., :10:: is hex 0x10 = dec 16).
-# advertise=yes makes the prefix appear in RAs (paired with /ipv6 nd below).
-/ipv6 address
-add address=fd7f:aee1:6ce0:88::1/64 interface=vlan88 advertise=yes
-add address=fd7f:aee1:6ce0:10::1/64 interface=vlan10 advertise=yes
-add address=fd7f:aee1:6ce0:20::1/64 interface=vlan20 advertise=yes
-add address=fd7f:aee1:6ce0:30::1/64 interface=vlan30 advertise=yes
-
-# --- IPv6 RA + RDNSS per VLAN (Phase A) ---
-# Hosts SLAAC from the advertised /64; RDNSS points at the router's per-VLAN
-# ULA ::1 so DNS lookups stay on-VLAN (no inter-VLAN firewall hop). Same role
-# as IPv4 dhcp-server-network "dns-server=<gateway>".
-# Default rule (interface=all) is disabled to avoid overlap with the explicit
-# per-VLAN rules below; we'll add explicit rules for any future interface
-# that needs RAs.
-/ipv6 nd
-set [find default=yes] disabled=yes
-# Stage 4: ra-interval tightened from default 3m20s-10m (200s-600s)
-# to 15s-30s so a Stage 4 preferred-lifetime flip reaches clients
-# within ~30s worst case (1 RA cycle). Modest multicast traffic.
-# Syntax is min-max with a hyphen; RouterOS displays/parses this
-# property as a single ra-interval=<min>-<max>.
-add interface=vlan88 advertise-dns=yes dns=fd7f:aee1:6ce0:88::1 ra-interval=15s-30s
-add interface=vlan10 advertise-dns=yes dns=fd7f:aee1:6ce0:10::1 ra-interval=15s-30s
-add interface=vlan20 advertise-dns=yes dns=fd7f:aee1:6ce0:20::1 ra-interval=15s-30s
-add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1 ra-interval=15s-30s
-
-# --- admin SSH key (cold-bootstrap only) ---
-# Routine reset-configuration with keep-users=yes preserves /user/ssh-keys
-# from the previous apply, so re-importing each time would just be churn —
-# and /user/ssh-keys/import consumes the .pub on success, forcing a re-scp
-# every apply. Skip when the key is already loaded; only import on cold
-# bootstrap (factory button reset / netinstall) where the user db starts
-# empty. To rotate the key: SSH in, /user/ssh-keys/remove [find user=admin],
-# scp the new .pub, then re-apply.
-:if ([:len [/user/ssh-keys/find user=admin]] > 0) do={
-    :log info "config.rsc: admin ssh key already present, skipping import"
-} else={
-    :if ([:len [/file/find name=gkanapathy-mbpmx.pub]] > 0) do={
-        /user/ssh-keys/import public-key-file=gkanapathy-mbpmx.pub user=admin
-        :log info "config.rsc: ssh key imported (cold bootstrap)"
-    } else={
-        :log warning "config.rsc: no admin ssh key registered and gkanapathy-mbpmx.pub absent; password fallback only"
-    }
-}
-
-# SSH server hardening + behavior:
-# - password-authentication=yes: keep password fallback while we iterate.
-#   RouterOS default is `yes-if-no-key`, which rejects passwords once a user
-#   has any registered key. Tighten back later.
-# - strong-crypto=yes: prefer modern ciphers/MACs/KEX. Doesn't add
-#   post-quantum KEX (RouterOS 7.21.4 has none), so OpenSSH 9.x will still
-#   warn about "store now, decrypt later"; that warning won't go away until
-#   MikroTik ships PQ-KEX support upstream.
-# - host-key-type=ed25519: smaller, faster, modern key.
-# - host-key-size=4096: dormant for ed25519, only matters if anyone ever
-#   flips host-key-type back to rsa; cheap to set.
-# - forwarding-enabled=no: refuse SSH-tunnel/jump-host use of the router.
-# - regenerate-host-key: explicit rotation. Apply flow already does
-#   `ssh-keygen -R`, so the new fingerprint is no surprise.
-# Note: there is no `max-auth-tries` property on /ip ssh in 7.21.4 (that's
-# OpenSSH's MaxAuthTries). Brute-force resistance lives elsewhere — we
-# rely on key-only auth + service `address=` scoping below.
-/ip ssh
-set password-authentication=yes strong-crypto=yes host-key-type=ed25519 host-key-size=4096 forwarding-enabled=no
-/ip ssh regenerate-host-key
-
-# --- service surface ---
-# Lock down management services. Bind interactive surfaces to mgmt+plumtree
-# only (plus IPv6 link-local so README.md's recovery path stays usable);
-# disable everything else.
-# - /ip service `address=` applies to both IPv4 and IPv6 sources, so an
-#   IPv4-only list would silently fence off IPv6 link-local recovery.
-# - api-ssl is disabled by default (no cert); not setting it.
-/ip service
-set telnet disabled=yes
-set ftp    disabled=yes
-set api    disabled=yes
-set ssh    address=192.168.88.0/24,192.168.10.0/24,fe80::/10
-set winbox address=192.168.88.0/24,192.168.10.0/24,fe80::/10
-set www    address=192.168.88.0/24,192.168.10.0/24,fe80::/10
-
-# --- enable VLAN filtering (early; lockout-safety on partial apply) ---
-# Hard prereq is /interface bridge vlan above, which populates the
-# per-port-per-VID table that vlan-filtering enforces.
-#
-# Anchored here (right after /ip address + /ip ssh + /ip service)
-# rather than at the end of config.rsc, so that if a later block
-# errors during /import and aborts the script, SSH-via-LAN-IP still
-# works — the next "diagnose, fix, re-apply" cycle doesn't need a
-# button-reset cold bootstrap.
-/interface bridge
-set [find name=bridge] vlan-filtering=yes
 
 # --- DHCP pools ---
 /ip pool
@@ -886,5 +878,33 @@ set enabled=no
 /tool netwatch
 add comment=sonic-probe type=icmp host=1.1.1.1 src-address=192.168.10.1 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=sonic-up down-script=sonic-down
 add comment=mb-probe    type=icmp host=1.1.1.1 src-address=192.168.20.1 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=mb-up    down-script=mb-down
+
+# --- LEDs + reset-button-press toggle (cosmetic; placed at the end) ---
+# Default: turn off the front-panel LEDs after 1h of uptime. Lets us
+# see boot health visually for the first hour, then dark.
+/system leds settings
+set all-leds-off=after-1h
+
+# Bind a brief (<2s) press of the front Reset button — only while
+# RouterOS is running, so it doesn't interfere with the boot-time
+# factory-reset / netinstall behavior — to a script that toggles the
+# LEDs between "on permanently" (never) and "off immediately"
+# (immediate). Useful for visual inspection without re-applying config.
+# The toggle persists until the next reset+replay, which restores
+# all-leds-off=after-1h.
+/system script
+:if ([:len [/system/script/find name=toggle-leds]] > 0) do={
+    /system/script/remove [find name=toggle-leds]
+}
+add name=toggle-leds source={
+    :local cur [/system/leds/settings/get all-leds-off]
+    :if ($cur = "never") do={
+        /system/leds/settings/set all-leds-off=immediate
+    } else={
+        /system/leds/settings/set all-leds-off=never
+    }
+}
+/system routerboard reset-button
+set enabled=yes hold-time=0s..2s on-event=toggle-leds
 
 :log info "config.rsc: done"
