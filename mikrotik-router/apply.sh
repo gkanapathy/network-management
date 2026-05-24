@@ -115,9 +115,9 @@ echo "    router back after $attempt polls"
 # in a sandboxed environment) are tolerated — the apply itself doesn't
 # depend on known_hosts being clean.
 ssh-keygen -R "$ROUTER_HOST" >/dev/null 2>&1 || true
-# grep -v '^#' strips ssh-keyscan's banner-line header so it doesn't
+# -q suppresses ssh-keyscan's banner-line header so it doesn't
 # accumulate in known_hosts on every apply.
-ssh-keyscan -T 5 -t ed25519 "$ROUTER_HOST" 2>/dev/null | grep -v '^#' >> ~/.ssh/known_hosts 2>/dev/null || true
+ssh-keyscan -q -T 5 -t ed25519 "$ROUTER_HOST" 2>/dev/null >> ~/.ssh/known_hosts || true
 
 # === 5. verify completion =====================================================
 # Give the log a moment to flush.
