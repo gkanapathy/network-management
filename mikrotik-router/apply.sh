@@ -36,15 +36,19 @@ BACKUP_NAME=before-apply
 # "store now", "may need to be upgraded") that flood every line on
 # RouterOS 7.21.4. RouterOS's own stdout/stderr passes through fine.
 #
-# StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null bypass
-# known_hosts entirely: the apply is its own trust context (we just
-# rebooted our own router on a trusted LAN), and not bypassing
-# means pre-reset SSH would fail if a previous apply left a stale
-# entry, while ssh-keygen -R isn't reliable enough to clean up
-# (silently no-ops in sandboxed environments with read-only ~/.ssh).
-KH_BYPASS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-SSH="ssh -q $KH_BYPASS"
-SCP="scp -q $KH_BYPASS"
+# Pre-reset calls use StrictHostKeyChecking=accept-new: first-time
+# connect TOFU's the host key into known_hosts, subsequent connects
+# verify against it, and a CHANGED key (stale entry from a previous
+# apply not cleaned up, or actual MITM) FAILS loudly. That's the
+# correct security signal — apply.sh shouldn't silently accept a
+# rotated key before it's done the rotation itself.
+#
+# Post-reset calls (poll loop + marker check) use SSH_NOKHOST instead
+# because we just rotated the host key ourselves; known_hosts is
+# expected to mismatch until the cleanup at the end of step 4.
+SSH="ssh -q -o StrictHostKeyChecking=accept-new"
+SCP="scp -q -o StrictHostKeyChecking=accept-new"
+SSH_NOKHOST="ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
 # Run from the directory containing this script so relative paths
 # (config.rsc, snapshots/) resolve regardless of caller's cwd.
@@ -93,7 +97,7 @@ $SSH "$ROUTER" "/system reset-configuration no-defaults=yes skip-backup=yes keep
 echo "==> polling for router (host key will rotate)"
 attempt=0
 while true; do
-    if $SSH -o ConnectTimeout=1 "$ROUTER" ":put alive; quit" 2>/dev/null | grep -q alive; then
+    if $SSH_NOKHOST -o ConnectTimeout=1 "$ROUTER" ":put alive; quit" 2>/dev/null | grep -q alive; then
         break
     fi
     attempt=$((attempt + 1))
@@ -117,7 +121,7 @@ ssh-keyscan -T 5 -t ed25519 "$ROUTER_HOST" 2>/dev/null >> ~/.ssh/known_hosts 2>/
 # Give the log a moment to flush.
 sleep 3
 
-if ! $SSH "$ROUTER" '/log print where message="config.rsc: done"' | grep -q done; then
+if ! $SSH_NOKHOST "$ROUTER" '/log print where message="config.rsc: done"' | grep -q done; then
     echo "ERROR: 'config.rsc: done' marker MISSING — import aborted mid-script" >&2
     echo "       inspect: ssh $ROUTER '/log print'" >&2
     exit 1
