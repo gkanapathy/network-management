@@ -31,9 +31,13 @@ bootstrap (button reset, netinstall) is a different path — see
 re-staged.
 
 ```fish
-# 1. Pre-apply backup
+# 1. Pre-apply backup. Save it on the router, scp it down to snapshots/,
+#    then delete the on-router copy — backups belong in snapshots/, not
+#    on the router (where they accumulate as junk and aren't useful for
+#    recovery anyway, since wipe-and-replay starts from config.rsc).
 ssh admin@192.168.88.1 '/system backup save name=before-apply dont-encrypt=yes'
 scp admin@192.168.88.1:before-apply.backup snapshots/$(date -u +%Y-%m-%dT%H%M%SZ)-before-apply.backup
+ssh admin@192.168.88.1 '/file remove before-apply.backup'
 
 # 2. Stage source
 scp config.rsc admin@192.168.88.1:
