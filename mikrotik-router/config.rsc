@@ -242,6 +242,12 @@ add name=sonic fib
 #    stable, changes only on ISP infra changes)
 #  - /ipv6 route gateway against /ipv6 dhcp-client dhcp-server-v6
 #    (upstream link-local -- stable, changes only on ISP CPE swap)
+#  - /ipv6 nd prefix prefix= + lifetimes against /ipv6 address from-pool
+#    and /ipv6 pool (per-VLAN-per-pool advertised /64; prefix rotates
+#    on /56 rotation, lifetimes track pool lease clamped at 30m)
+#  - /tool netwatch src-address against /ipv6 address from-pool=...
+#    eui-64=yes (Stage 4 v6 probe src; host part stable via EUI-64
+#    from pinned bridge MAC, only the prefix part rotates)
 #
 # Triggered three ways (hybrid):
 #  - Event-driven: /ip dhcp-client and /ipv6 dhcp-client `script=`
@@ -255,6 +261,10 @@ add name=sonic fib
 #  - /routing rule comment="auto-v6-{src,dst}-<pool>"
 #  - /ip route comment="auto-v4-route-<table>-<pri|sec>-<wan>"
 #  - /ipv6 route comment="auto-v6-route-<table>-<pri|sec>-<wan>"
+#  - /ipv6 nd prefix comment="auto-nd-<vlan>-<pool>"
+#  - /tool netwatch comment={sonic-probe,mb-probe} (src-address only)
+# Also reads (no writes): /ipv6 address comment="probe-src-<pool>"
+# to source the bound host GUA into netwatch src-address.
 # Don't reuse those comment strings elsewhere.
 #
 # Defined here (after the lockout-safety gate, before /ip dhcp-client
@@ -471,6 +481,42 @@ add name=wan-reconciler source={
             }
         }
     }
+    # --- netwatch src-address reconciler: keep each Stage 4 probe's
+    # src-address in sync with the router's current host GUA in the
+    # corresponding pool. The /ipv6 address entry (find by comment
+    # "probe-src-<pool>") has eui-64=yes set, so its host part is
+    # stable across /56 rotations; only the prefix changes. We read
+    # the bound address, strip the /N mask, and `set` it on the
+    # matching netwatch entry if it changed.
+    :local netwatchSrcReconcile do={
+        :local probeComment $1
+        :local poolName $2
+        :local addrCmt ("probe-src-" . $poolName)
+        :local addrExisting [/ipv6 address find comment=$addrCmt]
+        :if ([:len $addrExisting] = 0) do={
+            :log warning ("wan-reconciler: " . $addrCmt . " /ipv6 address missing -- re-declare in config.rsc or re-apply")
+            :return true
+        }
+        :local raw [/ipv6 address get [:pick $addrExisting 0] address]
+        :local slashPos [:find $raw "/"]
+        :local addr $raw
+        :if ([:typeof $slashPos] != "nothing") do={
+            :set addr [:pick $raw 0 $slashPos]
+        }
+        :local nwExisting [/tool netwatch find comment=$probeComment]
+        :if ([:len $nwExisting] = 0) do={
+            :log warning ("wan-reconciler: netwatch " . $probeComment . " missing -- re-declare in config.rsc or re-apply")
+            :return true
+        }
+        :local nwId [:pick $nwExisting 0]
+        # netwatch src-address is typed ip6; compare via :tostr to avoid
+        # canonicalization mismatches (e.g., literal vs zero-suppressed).
+        :local curSrc [:tostr [/tool netwatch get $nwId src-address]]
+        :if ($curSrc != $addr) do={
+            /tool netwatch set $nwId src-address=$addr
+            :log info ("wan-reconciler: ROTATED netwatch " . $probeComment . " src-address: " . $curSrc . " -> " . $addr)
+        }
+    }
     $v6Reconcile "mb-pd"    "mb"    "mb"
     $v6Reconcile "sonic-pd" "sonic" "sonic"
     $v4Reconcile "ether2"       "mb"
@@ -483,6 +529,11 @@ add name=wan-reconciler source={
     $v6NdReconcile "vlan20" "sonic-pd"
     $v6NdReconcile "vlan30" "mb-pd"
     $v6NdReconcile "vlan30" "sonic-pd"
+    # Update netwatch src-address BEFORE stage4Heal reads probe status,
+    # so a /56 rotation doesn't leave the probe pointing at a stale
+    # src for a full reconciler tick (10m) before getting healed.
+    $netwatchSrcReconcile "sonic-probe" "sonic-pd"
+    $netwatchSrcReconcile "mb-probe"    "mb-pd"
     # Stage 4 self-heal -- args: vlan, preferred-pool, fallback-pool, probe-comment
     $stage4Heal "vlan10" "sonic-pd" "mb-pd"    "sonic-probe"
     $stage4Heal "vlan88" "sonic-pd" "mb-pd"    "sonic-probe"
@@ -491,13 +542,15 @@ add name=wan-reconciler source={
 }
 
 # --- Stage 4 failover scripts (per-WAN up/down events) ---
-# Netwatch probes 1.1.1.1 via each WAN (src-address steers via
-# /routing rule). On status transition, the appropriate script fires
-# to flip preferred-lifetime on the affected VLANs' /ipv6 nd prefix
-# entries -- clients receive the new RA, RFC 6724 Rule 3 makes them
-# source from the non-deprecated pool's GUA, traffic egresses via the
+# Netwatch probes Cloudflare v6 anycast (2606:4700:4700::1111) from a
+# router host GUA in each pool; src-PBR steers via /routing rule. On
+# status transition, the appropriate script fires to flip
+# preferred-lifetime on the affected VLANs' /ipv6 nd prefix entries
+# -- clients receive the new RA, RFC 6724 Rule 3 makes them source
+# from the non-deprecated pool's GUA, traffic egresses via the
 # matching WAN. No DAD wait: clients already hold both GUAs from the
-# steady-state dual-GUA design (Stage 3 v2).
+# steady-state dual-GUA design (Stage 3 v2). See the netwatch block
+# below for the why-this-detects-failure design note.
 #
 # Each *-down script handles the 2 VLANs whose primary is that WAN:
 #   sonic-{up,down} -> vlan10 (plumtree) + vlan88 (mgmt)
@@ -600,28 +653,37 @@ add interface=ether2       request=address,prefix pool-name=mb-pd    pool-prefix
 add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no script="/system script run wan-reconciler"
 
 # --- IPv6 GUA per-VLAN from DHCPv6-PD pools (Phase B-MB + Phase C) ---
-# from-pool= on 7.21.4 is prefix-only-to-interface: the pool's /64 is
-# bound to the VLAN as a network address (for routing); the router has
-# no host GUA on the interface. Clients SLAAC their own GUAs; router
-# stays reachable via per-VLAN ULA ::1 (Phase A) and link-local. /64
-# re-derives automatically on lease renewal.
+# from-pool= on 7.21.4 is prefix-only-to-interface by default: the
+# pool's /64 binds to the VLAN as a network address (for routing); the
+# router gets no host GUA on the interface. Clients SLAAC their own
+# GUAs; router stays reachable via per-VLAN ULA ::1 (Phase A) and
+# link-local. /64 re-derives automatically on lease renewal.
 #
 # All entries advertise=no -- the dynamic /ipv6 nd prefix entries that
 # would otherwise be auto-derived can't be `set`-mutated (the original
 # Phase C plan ran into this on 7.21.4; see LESSONS.md). Instead, RA
 # emission is driven by EXPLICIT static /ipv6 nd prefix entries (below)
 # with per-VLAN-per-pool preferred-lifetime bias, which IS settable
-# and is the mechanism Stage 4 will use for failover.
+# and is the mechanism Stage 4 uses for failover.
 #
 # Both pools stay bound on every VLAN so source-PBR can match either
 # /64. Clients get TWO GUAs per VLAN -- the primary pool's preferred,
 # the secondary pool's deprecated.
+#
+# vlan88's entries set eui-64=yes -- gives the router a stable host
+# GUA per pool (prefix from pool + EUI-64 from bridge MAC), used as
+# the v6 Netwatch probe src-address. mgmt VLAN chosen because that's
+# where router-originated probe traffic naturally belongs. The host
+# part is stable across /56 rotations (MAC is pinned admin-mac);
+# only the prefix changes. wan-reconciler tracks the prefix change
+# into the netwatch src-address field. See LESSONS.md (netwatch
+# probes via foreign-source v6) for the design rationale.
 /ipv6 address
-add from-pool=mb-pd    interface=vlan88 advertise=no
+add from-pool=mb-pd    interface=vlan88 advertise=no eui-64=yes comment="probe-src-mb-pd"
 add from-pool=mb-pd    interface=vlan10 advertise=no
 add from-pool=mb-pd    interface=vlan20 advertise=no
 add from-pool=mb-pd    interface=vlan30 advertise=no
-add from-pool=sonic-pd interface=vlan88 advertise=no
+add from-pool=sonic-pd interface=vlan88 advertise=no eui-64=yes comment="probe-src-sonic-pd"
 add from-pool=sonic-pd interface=vlan10 advertise=no
 add from-pool=sonic-pd interface=vlan20 advertise=no
 add from-pool=sonic-pd interface=vlan30 advertise=no
@@ -865,26 +927,60 @@ set enabled=no
 }
 
 # --- Stage 4 Netwatch probes ---
-# Per-WAN reachability probes targeting 1.1.1.1. src-address steers
-# each probe via the /routing rule chain through the named WAN:
-#   sonic-probe src=192.168.10.1 (plumtree -> sonic table)
-#   mb-probe    src=192.168.20.1 (guest    -> mb table)
-# These VLANs are structurally stable in their WAN policy (plumtree
-# always Sonic-primary by convention, guest always MB).
+# Per-WAN reachability probes targeting Cloudflare's v6 anycast
+# 2606:4700:4700::1111. src-address is the router's own host GUA in
+# the named pool (eui-64=yes on the vlan88 from-pool entry above);
+# /routing rule src=<pool>::/56 -> table=<pool> steers the probe
+# through the matching WAN.
+#
+# Why a v6 probe with a *foreign-pool* src works as a failure signal
+# (it doesn't seem obvious that it would):
+#
+#   - When the named WAN is up:
+#       probe src=<this-pool> -> table=<this-pool> d=1 -> out this-WAN.
+#       This-WAN's BCP38 sees the src is its own customer prefix,
+#       passes. Reply via this-WAN. Probe up.
+#   - When the named WAN is down (interface admin-down or
+#     check-gateway=ping detected the upstream gw dead):
+#       d=1 inactive -> d=2 (other-WAN) active in this-pool's table.
+#       Probe egresses via the *other* WAN with src=<this-pool>.
+#       Other-WAN behavior on foreign-source v6 varies (MB accepts and
+#       forwards, Sonic enforces BCP38 and drops). Either way the
+#       reply path requires this-pool's /56 to be announced and
+#       deliverable by this-WAN -- which the dead this-WAN can't do.
+#       So the reply never reaches us. Probe times out. Down-script
+#       fires.
+#
+# This shape parallels actual client traffic exactly: a client whose
+# preferred GUA is in this-pool sends src=<this-pool> via the same
+# /routing rule, hits the same d=1->d=2 fallthrough on WAN failure,
+# and gets the same reply-path-broken outcome. Probe state therefore
+# tracks "would a client on this pool be able to make a round-trip
+# right now?" -- the exact condition Stage 4 needs to detect.
+#
+# Replaces the earlier v4 1.1.1.1 probe design which couldn't see a
+# Sonic-interface failure at all -- v4 probes from a LAN src get
+# NAT-masqueraded out the surviving WAN and reach 1.1.1.1 fine,
+# masking the failure (Bug A in the Stage 4 design pass).
 #
 # packet-count=3 + packet-interval=500ms suppresses single-packet
 # noise: a probe is failed only if all 3 ICMP echoes time out within
 # ~2s. RouterOS 7.21.4 doesn't have loss-threshold (the N-consecutive
 # -probe-failures knob), so a single failed probe immediately fires
-# the down-script. False-fail risk is mitigated by 1.1.1.1's
-# stability + the wan-reconciler's stage4Heal self-correcting on the
+# the down-script. False-fail risk is mitigated by Cloudflare's
+# stability + wan-reconciler's stage4Heal self-correcting on the
 # 10m tick.
 #
 # startup-delay=60s prevents premature firing while dhcp-clients are
 # still acquiring leases on apply-day.
+#
+# src-address literals are bootstrap defaults; wan-reconciler updates
+# them in-place via the netwatchSrcReconcile pass on /56 rotation.
+# Host part 6f4:1cff:fe51:bad8 is EUI-64 from the pinned bridge MAC
+# 04:F4:1C:51:BA:D8 (insert FF:FE in middle, flip U/L bit).
 /tool netwatch
-add comment=sonic-probe type=icmp host=1.1.1.1 src-address=192.168.10.1 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=sonic-up down-script=sonic-down
-add comment=mb-probe    type=icmp host=1.1.1.1 src-address=192.168.20.1 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=mb-up    down-script=mb-down
+add comment=sonic-probe type=icmp host=2606:4700:4700::1111 src-address=2001:5a8:6a5:4600:6f4:1cff:fe51:bad8 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=sonic-up down-script=sonic-down
+add comment=mb-probe    type=icmp host=2606:4700:4700::1111 src-address=2607:f598:d488:6100:6f4:1cff:fe51:bad8 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=mb-up    down-script=mb-down
 
 # --- LEDs + reset-button-press toggle (cosmetic; placed at the end) ---
 # Default: turn off the front-panel LEDs after 1h of uptime. Lets us

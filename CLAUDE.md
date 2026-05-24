@@ -70,32 +70,26 @@ router by hand — drift will get wiped on the next apply.
   [mikrotik-router/IPV6-PLAN.md](mikrotik-router/IPV6-PLAN.md), staged
   apply in [mikrotik-router/SONIC-PLAN.md](mikrotik-router/SONIC-PLAN.md).
   Link-local recovery in `mikrotik-router/README.md` stays valid.
-- **Sonic WAN buildout** — Sonic line is live on `sfp-sfpplus1`
-  (Stages 0–3 applied 2026-05-21/22; Sonic delivers DHCP/IPoE with
-  IA_NA + IA_PD /56). Per-SSID PBR for both v4 and v6 is source-based
-  via `/routing rule`. Current routing — plumtree + mgmt (v4 + v6)
-  → Sonic primary; guest + iot (v4 + v6) → MB primary; `main` table
-  → Sonic primary too (router-originated traffic + any fall-through).
-  v6 uses a dual-GUA-per-VLAN approach: both pools bound on every
-  VLAN with `advertise=no`, RA emission driven by explicit static
-  `/ipv6 nd prefix` entries with `preferred-lifetime=30m` (clamped
-  pool-derived) on the primary pool and `preferred-lifetime=0s`
-  (deprecated) on the secondary. Clients SLAAC both, RFC 6724 Rule 3 picks the preferred
-  for new flows; Stage 4 will flip preferred-lifetime on WAN-down
-  events to migrate clients to the surviving GUA without DAD wait. WAN-derived literals (PD
-  /56s, v4 next-hops, v6 upstream link-locals) are kept in sync with
-  live DHCP state by a `wan-reconciler` script, triggered three ways
-  (hybrid): /ip + /ipv6 dhcp-client `script=` hooks on lease change
-  (event-driven), `/system scheduler` at 10m interval (polling
-  belt-and-suspenders), and natural apply-day bootstrap via first
-  dhcp-client bind. Staged rollout in
+- **Sonic WAN buildout** — Sonic on `sfp-sfpplus1`, MB on `ether2`.
+  Per-VLAN PBR (v4 + v6 via `/routing rule`): plumtree + mgmt →
+  Sonic; guest + iot → MB. `main` table is Sonic-primary too. v6
+  uses dual-GUA per VLAN — both pools bound (`advertise=no`), RA
+  emission via explicit static `/ipv6 nd prefix` entries with
+  preferred-lifetime bias (`30m` for primary, `0s` for fallback);
+  clients SLAAC both, RFC 6724 Rule 3 picks the preferred. Stage 4
+  Netwatch failover: per-WAN probes of `2606:4700:4700::1111` from a
+  router host GUA in that WAN's /56 (foreign-source v6 — when the
+  WAN dies, the reply can't route back via the dead WAN so the
+  probe times out). `*-down` scripts flip preferred-lifetime;
+  clients re-pick the surviving GUA on next RA, no DAD wait.
+  WAN-derived literals (PD /56s, v4 next-hops, upstream LLs, ND
+  prefix /64s, netwatch src) are kept in sync by `wan-reconciler`,
+  hybrid-triggered (event-driven via dhcp-client `script=` hooks +
+  10m scheduler tick). Detailed staging in
   [mikrotik-router/SONIC-PLAN.md](mikrotik-router/SONIC-PLAN.md);
-  Stage 4 Netwatch failover applied 2026-05-23: per-WAN
-  `1.1.1.1` probes (src-PBR'd through each table) fire `*-up`/
-  `*-down` scripts that flip preferred-lifetime, migrating clients
-  to the surviving GUA on the next RA without DAD wait. The
-  reconciler also self-heals preferred-lifetime alignment from
-  Netwatch status on each tick.
+  architectural lessons (mangle PBR trap, dynamic-prefix `set`
+  refusal, BCP38 asymmetry, Bug A v4-probe trap) in
+  [mikrotik-router/LESSONS.md](mikrotik-router/LESSONS.md).
 - **Diagnose Wi-Fi bufferbloat / latency under load on the EAPs.** Sustained
   ping spikes during saturating Wi-Fi traffic suggest queueing somewhere
   in the AP→client path. First isolate: ping a LAN target from a wired

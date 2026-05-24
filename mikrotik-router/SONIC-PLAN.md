@@ -5,9 +5,12 @@ WAN selection, with v4 + v6 PBR, and per-WAN failover. Designed in
 [`IPV6-PLAN.md` § Phase C](IPV6-PLAN.md); staged here for incremental
 apply.
 
-**Status (2026-05-23):** Stages 0–4 applied. Sonic Stage 4 (Netwatch
-+ dynamic `preferred-lifetime` flip via the dual-GUA mechanism) is
-the v6 counterpart to v4's route-distance failover.
+**Status (2026-05-24):** Stages 0–4 applied; Bug A fix in Stage 4
+applied 2026-05-24 (switched probes from v4 1.1.1.1 to v6 Cloudflare
+anycast with foreign-source src — see [`LESSONS.md`](LESSONS.md)).
+Stage 4 (Netwatch + dynamic `preferred-lifetime` flip via the
+dual-GUA mechanism) is the v6 counterpart to v4's route-distance
+failover.
 
 ## Shipped design (current state)
 
@@ -68,11 +71,18 @@ find-then-add pattern would create duplicates.
   Tagged `comment="auto-nd-<vlan>-<pool>"`. The reconciler keeps
   `prefix=` in sync with what `/ipv6 address from-pool=…` actually
   bound, in case the /56 ever rotates. `preferred-lifetime` is NOT
-  reconciler-managed in steady state (Stage 4 will manipulate it on
+  reconciler-managed in steady state (Stage 4 manipulates it on
   WAN-down events).
+- **`/tool netwatch` `src-address=`** for the two Stage 4 probes —
+  declared with the current /56's expected EUI-64-derived GUA as
+  bootstrap. The reconciler reads the router's host GUA from the
+  matching `/ipv6 address from-pool=… eui-64=yes` entry (found by
+  `comment="probe-src-<pool>"`) and `set`s netwatch `src-address`
+  if it changed. Only the prefix part rotates (host part is stable
+  from the pinned bridge MAC), so this only fires on /56 rotation.
 
-The reconciler heals all four when the ISP rotates the underlying
-value (PD /56, v4 next-hop, or upstream link-local).
+The reconciler heals all five when the ISP rotates the underlying
+value (PD /56, v4 next-hop, upstream link-local, or /64 sub-allocation).
 
 Triggered three ways (hybrid):
 
@@ -97,60 +107,53 @@ rotates them.
 
 ## Stage 4 — Netwatch + dynamic `preferred-lifetime` flip
 
-**Shipped shape:** v6 failover symmetric with v4. When a WAN's
-upstream becomes unreachable, the corresponding Netwatch probe fires
-the `*-down` script, which flips `preferred-lifetime` on the four
-affected `/ipv6 nd prefix` entries (2 VLANs × 2 pools — the two
-VLANs whose primary is the failed WAN, both pools' entries). Clients
-applying RFC 6724 Rule 3 migrate to the surviving GUA on the next RA
-(15–30s with the tightened RA interval). Since they already hold
-both addresses from the dual-GUA design, there's no DAD wait — first
-packet on the new GUA goes out immediately. `*-up` scripts revert.
+v6 failover symmetric with v4. Per-WAN Netwatch probe of Cloudflare
+v6 anycast `2606:4700:4700::1111` from a router host GUA in that
+WAN's /56. On failure, `*-down` script flips `preferred-lifetime`
+on the four `/ipv6 nd prefix` entries (2 VLANs × 2 pools) for that
+WAN's primary VLANs. Clients re-pick the surviving GUA on the next
+RA (15-30s with `ra-interval=15s-30s`); no DAD wait because clients
+hold both addresses from the dual-GUA design. `*-up` reverts.
+
+The probe shape (foreign-source v6, not v4 LAN-IP src) was chosen
+after the original Stage 4 design was found broken — see Bug A in
+[`LESSONS.md`](LESSONS.md) for the diagnosis and why
+reply-path-broken makes the v6 probe reliably detect WAN failures
+that v4 probes miss.
 
 ### Components
 
-- **`/tool netwatch`** (two entries): probe `1.1.1.1` via ICMP, each
-  with `src-address=<a VLAN IP that routes via the named WAN>`. The
-  `/routing rule` chain steers the probe through the named WAN based
-  on source. 7.21.4 doesn't have `routing-table=` or `interface=` on
-  Netwatch, so this is the way.
-  - `sonic-probe`: `src-address=192.168.10.1` (plumtree → sonic)
-  - `mb-probe`: `src-address=192.168.20.1` (guest → mb)
-  - `packet-count=3 packet-interval=500ms` suppresses single-packet
-    noise (all 3 echoes must time out for the probe to fail).
-  - 7.21.4 lacks `loss-threshold`, so any failed probe immediately
-    fires the down-script. False-fail risk mitigated by 1.1.1.1's
-    stability + the reconciler's `stage4Heal` self-correcting on the
-    10m tick.
-  - `startup-delay=60s` keeps the probes quiet until dhcp-clients
-    bind on apply-day.
-
+- **`/tool netwatch`** (two entries) — `host=2606:4700:4700::1111`,
+  `src-address=<router's host GUA in pool>`. `/routing rule
+  src=<pool>::/56 → table=<pool>` steers via src-PBR. Bootstrap
+  literal is the current /56's expected EUI-64 GUA; reconciler
+  tracks /56 rotation via `netwatchSrcReconcile`.
+- **`/ipv6 address`** on `vlan88` with `eui-64=yes` per pool — gives
+  the router host GUAs to use as probe src. Host part stable from
+  pinned bridge MAC; prefix auto-tracks pool rotation. mgmt VLAN
+  picked because router-originated probe traffic naturally belongs
+  there.
 - **Four `/system script` entries** (`sonic-up`, `sonic-down`,
-  `mb-up`, `mb-down`). Each is 4 `/ipv6 nd prefix set` calls plus
-  a log line. Idempotent.
-
-- **`/ipv6 nd` tightened RA cadence** to `min=15s max=30s` per
-  active VLAN — RA-driven failover converges within one RA cycle.
-
-- **`wan-reconciler` extended with `stage4Heal`** — reads each
-  Netwatch probe's `status`, ensures the corresponding VLAN's
-  `/ipv6 nd prefix` preferred-lifetime values match. Catches missed
-  Netwatch events or failed script invocations on the 10m polling
-  tick.
+  `mb-up`, `mb-down`) with `policy=read,write,test,reboot` — the
+  netwatch caller envelope (full default policy exceeds it and gets
+  refused; see [`LESSONS.md`](LESSONS.md)).
+- **`/ipv6 nd ra-interval=15s-30s`** per active VLAN — RA-driven
+  failover converges within one RA cycle.
+- **`wan-reconciler`** extended with two Stage 4 passes:
+  `netwatchSrcReconcile` updates netwatch `src-address=` on /56
+  rotation; `stage4Heal` re-asserts `preferred-lifetime` from
+  current netwatch status, catching missed events on the 10m tick.
 
 ### Verify
 
-- Manual `/system script run sonic-down` → `/ipv6 nd prefix print`
-  shows vlan10/vlan88 sonic-pd entries with `preferred-lifetime=0s`
-  and mb-pd entries with `preferred-lifetime=30m`.
-- Software-disable Sonic interface (`/interface set sfp-sfpplus1
-  disabled=yes`): within ~12s Netwatch detects + fires `sonic-down`;
-  within one RA cycle (15-30s) plumtree clients deprecate sonic-pd
-  GUA, source from mb-pd, egress via MB.
-- Re-enable: `sonic-up` script fires within ~12s of `up` probe.
-- `stage4Heal` self-heal: manually misset a `preferred-lifetime`
-  to the wrong value; wait the 10m reconciler tick; confirm
-  restoration.
+- `/interface set sfp-sfpplus1 disabled=yes`: within ~10s
+  sonic-probe transitions to `down`, `sonic-down` runs, vlan10 +
+  vlan88 sonic-pd `preferred-lifetime` flips to `0s` and mb-pd to
+  `30m`. Re-enable: opposite, within ~15s of probe up.
+- `/system script run sonic-down` manually: same effect,
+  bypasses the probe (verifies the script body in isolation).
+- `stage4Heal` self-heal: misset a `preferred-lifetime`, wait the
+  next 10m reconciler tick.
 
 ## Stages 0–3 — applied 2026-05-21/22
 

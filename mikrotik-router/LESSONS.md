@@ -197,6 +197,68 @@ per-probe via `packet-count` + `packet-interval`. For our setup we
 backstop it with a reconciler-driven self-heal pass that re-asserts
 state on the 10m polling tick.
 
+### Netwatch v4 probes can't detect WAN failure in a src-PBR setup with fallback
+
+Naive design for per-WAN reachability monitoring: a `/tool netwatch`
+entry probing `1.1.1.1` with `src-address=<a LAN IP that routes via
+the named WAN>`. Relies on the `/routing rule` chain to steer the
+probe through the named WAN's routing table.
+
+Doesn't work when the routing table has a `d=2 <other-WAN>` fallback
+(which it must, so client traffic on that VLAN still gets internet
+when the primary WAN dies):
+
+- Failed WAN's `d=1` invalidates (interface admin-down OR
+  `check-gateway=ping` detects gateway dead) → `d=2` activates →
+  probe egresses the *other* WAN.
+- For v4: NAT masquerade rewrites the src on egress, so the probe
+  arrives at `1.1.1.1` with a valid source IP regardless of which
+  WAN it went out. Probe stays `up`. Failure invisible.
+- Down-script never fires.
+
+**Diagnostic**: disable a WAN's interface (`/interface set <wan>
+disabled=yes`) and watch the netwatch entry's `since` timestamp.
+If `since` doesn't move while the WAN is down, you're hitting this.
+
+**Fix: v6 probe with foreign-source src.** Probe Cloudflare v6
+anycast `2606:4700:4700::1111` with `src-address=<router's host GUA
+in the named WAN's /56>`. Two layered detection mechanisms work
+in combination:
+
+1. **Egress filtering** (BCP38 on the other WAN, when present).
+   Probe routes via the surviving WAN with src in the failed WAN's
+   /56 — i.e., foreign-source from the surviving WAN's view. Some
+   ISPs (empirically: Sonic does, Monkeybrains doesn't) drop
+   foreign-source v6 on egress.
+2. **Reply-path-broken** (works regardless of egress filtering).
+   Even if the surviving WAN forwards the foreign-source packet
+   and it reaches the target, the *reply* is destined for the
+   failed WAN's /56 — which routes back via the failed WAN's
+   announcement. With the failed WAN dead (link or upstream),
+   reply gets dropped at the failed WAN's edge or earlier. Probe
+   times out.
+
+Either way, probe goes `down` → down-script fires. This mirrors
+actual client traffic in the dual-WAN setup exactly: a client whose
+preferred GUA is in the failed pool experiences the same failure
+mode, so probe-up ⟺ "round-trip via this pool would succeed right
+now" — the condition Stage 4 needs to detect.
+
+**Implementation knobs**:
+
+- Router needs a host GUA in each /56 for use as probe src. Use
+  `/ipv6 address from-pool=X interface=vlanY eui-64=yes` to get one
+  auto-derived from the bridge MAC. Host part stable; prefix tracks
+  /56 rotation. (Static `/128` works too, but adds a reconciler
+  surface for the address literal itself — `eui-64=yes` doesn't.)
+- Reconciler must update netwatch `src-address=` on /56 rotation,
+  since the prefix part of the GUA changes. (The address itself
+  rotates inside the existing `/ipv6 address` entry; reconciler
+  reads it and `set`s netwatch.)
+
+Discovered + fixed 2026-05-23..24 (Bug A in the original Stage 4
+design pass).
+
 ### Netwatch's script policy envelope is `{read,write,test,reboot}`
 
 Netwatch invokes `up-script` / `down-script` as `*sys`, and its caller
