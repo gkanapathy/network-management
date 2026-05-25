@@ -8,16 +8,21 @@ and re-apply.
 ## Layout
 
 - `config.rsc` — target configuration. The whole router's intent.
-- `apply.sh` — apply runner: parse-check, backup, wipe-and-replay,
-  wait, verify completion. See [Apply](#apply).
+- `apply.sh` — apply runner: parse-check, pre-wipe `/export`,
+  wipe-and-replay, wait, verify completion, snapshot last-applied.
+  See [Apply](#apply).
 - `gkanapathy-mbpmx.pub` — admin SSH public key. Staged manually on
   cold bootstrap (see Recovery) and imported by the script's
   cold-bootstrap-only key-import block. Routine `apply.sh` does NOT
   re-upload this; `keep-users=yes` on `/system reset-configuration`
   preserves the imported key across routine applies.
-- `snapshots/` — single pre-Sonic baseline `.rsc` for deep
-  cold-bootstrap fallback. Per-apply backups are taken locally
-  but gitignored (`*.backup`).
+- `snapshots/` — working artifacts written by `apply.sh`, gitignored:
+  - `last-applied.rsc` — copy of `config.rsc` from the last successful
+    apply (= what's currently running on the router).
+  - `last-export.rsc` — pre-wipe `/export hide-sensitive` dump, for
+    debugging drift between intended (`config.rsc`) and materialized
+    state. Not a rollback artifact — rollback is
+    `git checkout <sha> -- config.rsc && ./apply.sh`.
 - `IPV6-PLAN.md` — v6 design reference. Phases A + B-MB applied;
   Phase C is folded into the Sonic Stage buildout.
 - `SONIC-PLAN.md` — staged Sonic WAN buildout. Stages 0–4 applied
@@ -43,11 +48,10 @@ The script does:
    mutating state. Aborts the script before anything destructive
    if parse fails. (Property-name typos can still slip past this —
    see [Common pitfalls](#common-pitfalls).)
-3. **Save a pre-apply backup**, scp it to `snapshots/<timestamp>-
-   before-apply.backup`, and **delete the on-router copy**
-   (backups belong in `snapshots/`, not on the router — they
-   accumulate as junk and aren't useful for recovery anyway, since
-   wipe-and-replay starts from `config.rsc`, not a backup restore).
+3. **Pull `/export hide-sensitive`** to `snapshots/last-export.rsc`.
+   Pre-wipe debugging snapshot; rollback is not via this file.
+   `skip-backup=yes` on step 4 tells the router not to bother
+   saving its own binary backup either — we don't use those.
 4. **Wipe + replay**: `/system reset-configuration no-defaults=yes
    skip-backup=yes keep-users=yes run-after-reset=config.rsc`.
    `keep-users=yes` preserves admin's password and imported SSH keys
@@ -61,6 +65,9 @@ The script does:
    "import aborted mid-script" failure mode (which the parse-check
    in step 2 won't catch on its own; property-name and runtime
    errors only show up at import time).
+7. **Snapshot `config.rsc`** to `snapshots/last-applied.rsc` (only on
+   success, so a failed apply doesn't clobber the prior known-good
+   copy).
 
 If something goes wrong mid-apply and SSH-via-mgmt-VLAN stops
 working, the IPv6 link-local backdoor (see [Recovery](#recovery))
@@ -154,9 +161,9 @@ password — **not** empty. To regain SSH access:
 
    If the working-tree `config.rsc` is mid-edit from a failed apply,
    `git checkout HEAD -- mikrotik-router/config.rsc` first so the
-   re-stage uses the last-committed state. `snapshots/` keeps a single
-   pre-Sonic baseline (`*-post-key-refactor.rsc`) as a deeper fallback
-   if HEAD itself is in a broken state.
+   re-stage uses the last-committed state. If HEAD itself is broken,
+   walk back: `git log mikrotik-router/config.rsc` and
+   `git checkout <good-sha> -- mikrotik-router/config.rsc`.
 
 5. **`/system device-mode` dance.** Cold-bootstrap resets device-mode
    to its factory default (`scheduler: no`), which blocks `/system
@@ -189,13 +196,15 @@ helped:
 
 1. Hold the reset button during power-on past the USR-LED-flashing window
    (~10s) → netinstall mode.
-2. Use MikroTik's `Netinstall` tool against ether1 to reflash the OS, or
-   restore the most recent `snapshots/*.backup` via `/system backup load`.
+2. Use MikroTik's `Netinstall` tool against ether1 to reflash the OS.
+   Then re-stage `config.rsc` (from git) + `gkanapathy-mbpmx.pub` and
+   run `apply.sh` per the button-reset cold-bootstrap procedure above.
 
-The pre-apply backup pulled in step 1 of Apply is the immediate safety
-net. Netinstall wipes both the OS and `/file/`, so the cold-bootstrap
+Netinstall wipes both the OS and `/file/`, so the cold-bootstrap
 re-stage of `gkanapathy-mbpmx.pub` and the `ssh-keygen -R 192.168.88.1`
-client-side cleanup from the button-reset section apply here too.
+client-side cleanup from the button-reset section apply here too. We
+don't keep binary `.backup` artifacts — rollback is via git, not
+`/system backup load`.
 
 ## Common pitfalls
 

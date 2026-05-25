@@ -4,14 +4,17 @@
 # Steps:
 #   1. Parse-check config.rsc on the router (catches syntax errors
 #      BEFORE the destructive apply).
-#   2. Save a pre-apply backup, scp it down to snapshots/, delete the
-#      on-router copy (router-side backups accumulate as junk and
-#      aren't useful — wipe-and-replay starts from config.rsc, not
-#      a backup restore).
+#   2. Pull /export hide-sensitive down to snapshots/last-export.rsc
+#      for pre-wipe debugging context (rollback isn't via this file;
+#      rollback is `git checkout <sha> -- config.rsc && ./apply.sh`).
 #   3. Wipe-and-replay: /system reset-configuration ... run-after-reset.
+#      skip-backup=yes so the router doesn't bother saving its own
+#      backup either (we don't use those for recovery).
 #   4. Wait for the router to come back online.
 #   5. Confirm config.rsc:done log marker fired (catches the
 #      "import aborted mid-script" failure mode).
+#   6. On success, snapshot config.rsc to snapshots/last-applied.rsc
+#      so we always have a copy of what's currently running.
 #
 # Recovery if router doesn't return: README.md § Recovery
 #   - IPv6 link-local backdoor (most cases)
@@ -30,7 +33,7 @@ ROUTER_USER=admin
 ROUTER_HOST=192.168.88.1
 ROUTER="${ROUTER_USER}@${ROUTER_HOST}"
 CONFIG=config.rsc
-BACKUP_NAME=before-apply
+SNAPSHOTS=snapshots
 
 # ssh/scp -q suppresses OpenSSH client warnings ("post-quantum",
 # "store now", "may need to be upgraded") that flood every line on
@@ -96,17 +99,15 @@ if [ "$PARSE_ONLY" = 1 ]; then
     exit 0
 fi
 
-# === 2. backup ================================================================
-echo "==> save pre-apply backup"
-$SSH "$ROUTER" "/system backup save name=$BACKUP_NAME dont-encrypt=yes" >/dev/null
-
-ts=$(date -u +%Y-%m-%dT%H%M%SZ)
-SNAPSHOT="snapshots/${ts}-${BACKUP_NAME}.backup"
-echo "==> scp backup to $SNAPSHOT"
-$SCP "$ROUTER:${BACKUP_NAME}.backup" "$SNAPSHOT" >/dev/null
-
-echo "==> remove on-router backup"
-$SSH "$ROUTER" "/file remove ${BACKUP_NAME}.backup" >/dev/null
+# === 2. /export snapshot ======================================================
+# Capture the router's view of its own config right before the wipe.
+# This is debugging-only: rollback is `git checkout <sha> -- config.rsc
+# && ./apply.sh`, not a restore from this file. Useful for spotting
+# drift between what config.rsc intended and what the router actually
+# materialized (dynamic-prefix interactions, RouterOS reformatting, etc).
+mkdir -p "$SNAPSHOTS"
+echo "==> pull /export hide-sensitive to $SNAPSHOTS/last-export.rsc"
+$SSH "$ROUTER" "/export hide-sensitive" > "$SNAPSHOTS/last-export.rsc"
 
 # === 3. apply =================================================================
 echo "==> APPLY (wipe-and-replay) — router will reboot"
@@ -178,5 +179,12 @@ if [ "$marker_seen" -eq 0 ]; then
     exit 1
 fi
 echo "    config.rsc: done marker present (apply-$NONCE, $attempt polls)"
+
+# === 6. snapshot last-applied =================================================
+# Record what's now running on the router. Updated only on success so a
+# failed apply doesn't clobber the prior known-good copy. Gitignored —
+# this is a working artifact, not version-controlled state (git history
+# of config.rsc is the audit trail).
+cp "$CONFIG" "$SNAPSHOTS/last-applied.rsc"
 
 echo "==> apply complete"

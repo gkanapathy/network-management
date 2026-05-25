@@ -13,12 +13,12 @@ omada-controller/     # all Omada-controller setups
 mikrotik-router/      # MikroTik rb5009 router — IaC-managed
   README.md           # workflow: how to apply, recover, schema-level gotchas
   config.rsc          # source of truth for the live router config
-  apply.sh            # apply runner: parse, backup, wipe-and-replay, verify
+  apply.sh            # apply runner: parse, /export, wipe-and-replay, verify, snapshot-last-applied
   IPV6-PLAN.md        # v6 design reference (Phases A + B-MB applied; Phase C is Sonic Stage 3)
   SONIC-PLAN.md       # staged Sonic WAN buildout (Stages 0-3 + wan-reconciler applied; 4 remains)
   LESSONS.md          # architectural lessons learned during the buildout
   gkanapathy-mbpmx.pub  # admin SSH pubkey, imported on apply
-  snapshots/          # single pre-Sonic baseline .rsc for deep cold-bootstrap fallback
+  snapshots/          # apply.sh working artifacts (gitignored): last-applied.rsc + last-export.rsc
 
 netgear-wifi/         # Orbi RBR50/RBS50 v1, being reflashed to OpenWrt — bench, not deployed
   README.md           # status, hardware inventory, post-flash facts
