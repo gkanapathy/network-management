@@ -393,20 +393,36 @@ add name=wan-reconciler source={
             :log warning ("wan-reconciler: no /ipv6 address " . $vlanName . " " . $poolName)
             :return true
         }
-        :local bound [/ipv6 address get $addrId address]
-        # During apply-day binding, /ipv6 address from-pool= briefly
-        # shows "::/64" as a placeholder before the pool is populated.
-        # Don't capture that into /ipv6 nd prefix -- skip this VLAN/pool
-        # and let the next reconciler tick catch up once binding lands.
-        # (Observed in the wild: apply-day bug where transient ::/64 got
-        # written to /ipv6 nd prefix entries and persisted because the
-        # bind-event script= only fires once per lease event, not
-        # continuously. The 10m polling tick eventually heals; this
-        # check just avoids creating the bad state in the first place.)
-        :if ($bound = "::/64") do={
-            :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " /ipv6 address bind in progress (::/64), retry next tick")
+        # Read the bound /ipv6 address (returned as the string
+        # "<addr>/<masklen>"), strip the mask, parse to ip6, and mask
+        # to the /64 network. We compare and write the network /64
+        # only -- the eui-64=yes entries (probe-src-*) carry a host
+        # address in the host portion which we deliberately discard
+        # here; /ipv6 nd prefix should advertise the /64, not a host
+        # address.
+        :local raw [/ipv6 address get $addrId address]
+        :local slashPos [:find $raw "/"]
+        :if ([:typeof $slashPos] = "nothing") do={
+            :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " unparseable /ipv6 address: " . $raw)
             :return true
         }
+        :local hostIp [:toip6 [:pick $raw 0 $slashPos]]
+        :if ([:typeof $hostIp] != "ip6") do={
+            :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " :toip6 failed on " . $raw)
+            :return true
+        }
+        :local boundNet ($hostIp & [:toip6 "ffff:ffff:ffff:ffff::"])
+        # Transient apply-day / dhcp-rebind guard: while /ipv6 address
+        # is being bound, RouterOS briefly returns garbage forms like
+        # "::/64" (placeholder) or "::6f4:1cff:fe51:bad8/64" (host bits
+        # only, no prefix). Both produce net=:: after masking. Skip
+        # these so we don't write garbage into /ipv6 nd prefix prefix=
+        # and have to wait 10m for the next tick to heal.
+        :if ($boundNet = [:toip6 "::"]) do={
+            :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " /ipv6 address bind in progress (" . $raw . "), retry next tick")
+            :return true
+        }
+        :local boundPrefix ([:tostr $boundNet] . "/64")
         :local cmt ("auto-nd-" . $vlanName . "-" . $poolName)
         :local ndExisting [/ipv6 nd prefix find comment=$cmt]
         :if ([:len $ndExisting] = 0) do={
@@ -414,11 +430,14 @@ add name=wan-reconciler source={
             :return true
         }
         :local ndId [:pick $ndExisting 0]
-        # prefix= update (only on /56 rotation)
+        # prefix= update (only on /56 rotation). Both sides are now
+        # canonical /64 strings -- the comparison no longer false-
+        # mismatches on the host-bits-with-/64-mask form coming from
+        # eui-64=yes entries.
         :local cur [/ipv6 nd prefix get $ndId prefix]
-        :if ($cur != $bound) do={
-            /ipv6 nd prefix set $ndId prefix=$bound
-            :log info ("wan-reconciler: ROTATED nd " . $vlanName . "-" . $poolName . ": " . $cur . " -> " . $bound)
+        :if ($cur != $boundPrefix) do={
+            /ipv6 nd prefix set $ndId prefix=$boundPrefix
+            :log info ("wan-reconciler: ROTATED nd " . $vlanName . "-" . $poolName . ": " . $cur . " -> " . $boundPrefix)
         }
         # Lifetime tracking from pool, clamped at 30m.
         #

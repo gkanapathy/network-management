@@ -97,7 +97,11 @@ $SSH "$ROUTER" "/system reset-configuration no-defaults=yes skip-backup=yes keep
 echo "==> polling for router (host key will rotate)"
 attempt=0
 while true; do
-    if $SSH_NOKHOST -o ConnectTimeout=1 "$ROUTER" ":put alive; quit" 2>/dev/null | grep -q alive; then
+    # No trailing `quit` -- RouterOS treats it as a session interrupt
+    # and exits the ssh client with code 1, which `set -o pipefail`
+    # then propagates through grep, causing the loop to never detect
+    # router-back. Letting stdin EOF close the session is sufficient.
+    if $SSH_NOKHOST -o ConnectTimeout=1 "$ROUTER" ":put alive" 2>/dev/null | grep -q alive; then
         break
     fi
     attempt=$((attempt + 1))
