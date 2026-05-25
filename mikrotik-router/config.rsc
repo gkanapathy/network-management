@@ -196,12 +196,10 @@ add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1 ra-interval=15s-
 #   post-quantum KEX (RouterOS 7.21.4 has none), so OpenSSH 9.x will still
 #   warn about "store now, decrypt later"; that warning won't go away until
 #   MikroTik ships PQ-KEX support upstream.
-# - host-key-type=ed25519: smaller, faster, modern key. Note that setting
-#   this triggers RouterOS to (re)generate a new host key, because
-#   /system reset-configuration rolls /ip ssh back to defaults (rsa)
-#   before run-after-reset runs. So routine applies DO rotate the host
-#   key as a side-effect -- apply.sh's ssh-keygen -R + ssh-keyscan
-#   refresh in the polling step is what absorbs the churn.
+# - host-key-type=ed25519: smaller, faster, modern key. Setting this to
+#   a value that already matches the current host-key-type is a no-op
+#   (verified empirically on 7.21.4: `set host-key-type=ed25519` when
+#   it's already ed25519 leaves the host key bit-for-bit unchanged).
 # - host-key-size=4096: dormant for ed25519, only matters if anyone ever
 #   flips host-key-type back to rsa; cheap to set.
 # - forwarding-enabled=no: refuse SSH-tunnel/jump-host use of the router.
@@ -209,9 +207,14 @@ add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1 ra-interval=15s-
 # OpenSSH's MaxAuthTries). Brute-force resistance lives elsewhere — we
 # rely on key-only auth + service `address=` scoping below.
 #
-# No explicit `/ip ssh regenerate-host-key` call -- the type setter
-# above already triggers regen each apply, so an explicit regen would
-# just rotate twice.
+# About the host key on routine applies: the host key DOES rotate per
+# apply, but the rotation happens inside `/system reset-configuration`
+# itself -- factory-state restoration regenerates the SSH host key
+# unconditionally. The /ip ssh `set` block here is incidental; even
+# without the host-key-type line, reset would still rotate the key on
+# every apply. apply.sh's ssh-keygen -R + ssh-keyscan refresh in the
+# polling step is what absorbs the churn. No explicit
+# `/ip ssh regenerate-host-key` call needed (reset already does it).
 /ip ssh
 set password-authentication=yes strong-crypto=yes host-key-type=ed25519 host-key-size=4096 forwarding-enabled=no
 

@@ -45,11 +45,10 @@ BACKUP_NAME=before-apply
 #
 # Post-reset calls (poll loop + marker check) use SSH_NOKHOST.
 # /system reset-configuration regenerates the host key on every
-# routine apply in this setup (the /ip ssh set host-key-type=ed25519
-# in config.rsc triggers regen each time reset rolls /ip ssh back
-# to defaults), so known_hosts is stale until the ssh-keygen -R +
-# ssh-keyscan refresh at the end of step 4 puts the new key in
-# place. Bypassing known_hosts for the polling avoids a wedge there.
+# apply as part of factory-state restoration, so known_hosts is
+# stale until the ssh-keygen -R + ssh-keyscan refresh at the end
+# of step 4 puts the new key in place. Bypassing known_hosts for
+# the polling avoids a wedge there.
 SSH="ssh -q -o StrictHostKeyChecking=accept-new"
 SCP="scp -q -o StrictHostKeyChecking=accept-new"
 SSH_NOKHOST="ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
@@ -130,15 +129,15 @@ done
 echo "    router back after $attempt polls"
 
 # Refresh known_hosts. /system reset-configuration regenerates the
-# SSH host key in our setup (even with /ip ssh regenerate-host-key
-# removed from config.rsc -- the host-key-type=ed25519 setter in
-# /ip ssh triggers regen each time reset clears it back to the
-# default rsa). Empirically verified post-apply: known_hosts entry
-# differs from the live key. Without this refresh, the next
-# interactive SSH outside apply.sh would hit host-key-changed and
-# require manual `ssh-keygen -R`. Failures here (e.g., read-only
-# ~/.ssh in a sandboxed environment) are tolerated; the apply
-# itself doesn't depend on known_hosts being clean.
+# SSH host key on every routine apply as part of factory-state
+# restoration -- this happens regardless of what /ip ssh settings
+# config.rsc lays down afterwards. Empirically verified post-apply:
+# known_hosts entry differs from the live key after each apply.
+# Without this refresh, the next interactive SSH outside apply.sh
+# would hit host-key-changed and require manual `ssh-keygen -R`.
+# Failures here (e.g., read-only ~/.ssh in a sandboxed environment)
+# are tolerated; the apply itself doesn't depend on known_hosts
+# being clean.
 ssh-keygen -R "$ROUTER_HOST" >/dev/null 2>&1 || true
 # -q suppresses ssh-keyscan's banner-line header so it doesn't
 # accumulate in known_hosts on every apply.
