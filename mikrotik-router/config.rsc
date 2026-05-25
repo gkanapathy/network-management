@@ -280,7 +280,7 @@ add name=sonic fib
 :if ([:len [/system script find name=wan-reconciler]] > 0) do={
     /system script remove [find name=wan-reconciler]
 }
-add name=wan-reconciler source={
+add name=wan-reconciler policy=read,write,test source={
     # Uses RouterOS native typed values throughout -- /ipv6 pool gives a
     # clean ip6-prefix (no lifetime suffix to parse), dhcp-server-v6 is
     # ip6, /ip dhcp-client gateway is ip, /routing rule src/dst-address
@@ -925,15 +925,17 @@ add address=fd7f:aee1:6ce0:88::1 name=router.lan type=AAAA
 # --- IPv4 firewall ---
 /ip firewall filter
 # --- input chain ---
+# ICMP accept is scoped to LAN: echo replies and PMTUD come through as
+# `related` via the est/rel/untracked rule above, so we don't need to
+# accept new ICMP from WAN (which would just enable router-pingable
+# enumeration from the internet).
 add action=accept chain=input comment="accept established,related,untracked" connection-state=established,related,untracked
 add action=drop   chain=input comment="drop invalid" connection-state=invalid
-add action=accept chain=input comment="accept ICMP" protocol=icmp
+add action=accept chain=input comment="accept ICMP from LAN" protocol=icmp in-interface-list=LAN
 add action=accept chain=input comment="accept loopback" in-interface=lo src-address=127.0.0.1 dst-address=127.0.0.1
 add action=drop   chain=input comment="drop everything not from LAN" in-interface-list=!LAN
 
 # --- forward chain ---
-add action=accept chain=forward comment="accept in ipsec policy"  ipsec-policy=in,ipsec
-add action=accept chain=forward comment="accept out ipsec policy" ipsec-policy=out,ipsec
 add action=fasttrack-connection chain=forward comment="fasttrack" connection-state=established,related
 add action=accept chain=forward comment="accept established,related,untracked" connection-state=established,related,untracked
 add action=drop   chain=forward comment="drop invalid" connection-state=invalid
@@ -947,7 +949,7 @@ add action=drop chain=forward in-interface=vlan30 out-interface=vlan20   comment
 
 # --- NAT (masquerade out the WAN) ---
 /ip firewall nat
-add action=masquerade chain=srcnat ipsec-policy=out,none out-interface-list=WAN comment="masquerade WAN egress"
+add action=masquerade chain=srcnat out-interface-list=WAN comment="masquerade WAN egress"
 
 # --- IPv6 firewall (defconf hardening + Phase A inter-VLAN parity) ---
 /ipv6 firewall address-list
@@ -962,15 +964,15 @@ add address=2001:10::/28      list=bad_ipv6 comment="ORCHID"
 add address=3ffe::/16         list=bad_ipv6 comment="6bone"
 
 /ipv6 firewall filter
+# ICMPv6 accept is scoped to LAN. RouterOS handles ND (NS/NA/RS/RA)
+# below the firewall layer, so this doesn't break upstream-gateway
+# resolution on the WAN side. PMTUD return ("packet too big") arrives
+# as `related` and matches the est/rel rule above, so it still flows.
 add action=accept chain=input comment="accept established,related,untracked" connection-state=established,related,untracked
 add action=drop   chain=input comment="drop invalid" connection-state=invalid
-add action=accept chain=input comment="accept ICMPv6" protocol=icmpv6
+add action=accept chain=input comment="accept ICMPv6 from LAN" protocol=icmpv6 in-interface-list=LAN
 add action=accept chain=input comment="accept UDP traceroute" dst-port=33434-33534 protocol=udp
 add action=accept chain=input comment="accept DHCPv6 PD" dst-port=546 protocol=udp src-address=fe80::/10
-add action=accept chain=input comment="accept IKE" dst-port=500,4500 protocol=udp
-add action=accept chain=input comment="accept ipsec AH"  protocol=ipsec-ah
-add action=accept chain=input comment="accept ipsec ESP" protocol=ipsec-esp
-add action=accept chain=input comment="accept ipsec policy" ipsec-policy=in,ipsec
 add action=drop   chain=input comment="drop everything not from LAN" in-interface-list=!LAN
 
 add action=fasttrack-connection chain=forward comment="fasttrack6" connection-state=established,related
@@ -979,6 +981,10 @@ add action=drop   chain=forward comment="drop invalid" connection-state=invalid
 add action=drop   chain=forward comment="drop bad src ipv6" src-address-list=bad_ipv6
 add action=drop   chain=forward comment="drop bad dst ipv6" dst-address-list=bad_ipv6
 add action=drop   chain=forward comment="rfc4890 hop-limit=1" hop-limit=equal:1 protocol=icmpv6
+# v4-parity drop for WAN-originated new connections. Without this,
+# the broad ICMPv6 accept below would let internet hosts probe LAN
+# clients' GUAs. v4 has the same shape on its forward chain above.
+add action=drop chain=forward comment="drop WAN-originated new (v6 parity)" connection-state=new in-interface-list=WAN
 
 # Inter-VLAN policy parity with the IPv4 forward-chain drops above.
 # Placed BEFORE the broad ICMPv6 accept below so iot->plumtree ICMPv6 echo
@@ -989,12 +995,9 @@ add action=drop chain=forward in-interface=vlan30 out-interface=vlan88 comment="
 add action=drop chain=forward in-interface=vlan30 out-interface=vlan10 connection-state=new comment="iot -> plumtree: new conns blocked (returns OK)"
 add action=drop chain=forward in-interface=vlan30 out-interface=vlan20 comment="iot -> guest: blocked"
 
-add action=accept chain=forward comment="accept ICMPv6" protocol=icmpv6
-add action=accept chain=forward comment="accept HIP" protocol=139
-add action=accept chain=forward comment="accept IKE" dst-port=500,4500 protocol=udp
-add action=accept chain=forward comment="accept ipsec AH"  protocol=ipsec-ah
-add action=accept chain=forward comment="accept ipsec ESP" protocol=ipsec-esp
-add action=accept chain=forward comment="accept ipsec policy" ipsec-policy=in,ipsec
+# ICMPv6 forward scoped to LAN as belt-and-suspenders against the
+# WAN-new drop above (anything WAN-originated is already gone by here).
+add action=accept chain=forward comment="accept ICMPv6 from LAN" protocol=icmpv6 in-interface-list=LAN
 add action=drop   chain=forward comment="drop everything not from LAN" in-interface-list=!LAN
 
 # --- neighbor discovery + mac-server: LAN only ---
@@ -1097,7 +1100,7 @@ set all-leds-off=after-1h
 :if ([:len [/system/script/find name=toggle-leds]] > 0) do={
     /system/script/remove [find name=toggle-leds]
 }
-add name=toggle-leds source={
+add name=toggle-leds policy=read,write source={
     :local cur [/system/leds/settings/get all-leds-off]
     :if ($cur = "never") do={
         /system/leds/settings/set all-leds-off=immediate
