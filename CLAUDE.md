@@ -28,8 +28,8 @@ netgear-wifi/         # Orbi RBR50/RBS50 v1, being reflashed to OpenWrt — benc
 ## What's already configured
 
 - Omada controller is the hardware **OC200 v1** at
-  `https://192.168.88.252/` (Omada Controller v6.2.10.17 via TP-Link beta
-  firmware — see `omada-controller/oc200/README.md` for the should-move-to-stable note).
+  `https://192.168.88.252/` (firmware 1.40.18 stable — see
+  `omada-controller/oc200/README.md`).
 - Two EAP770 APs adopted, mesh formed (root wired on ether1 trunk,
   satellite over 6 GHz channel 197 / 160 MHz).
 - Three SSIDs (`plumtree`, `plumtree-guest`, `plumtree-iot`) on VLANs
