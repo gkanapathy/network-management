@@ -523,31 +523,40 @@ add name=wan-reconciler policy=read,write,test source={
         :local nwStatus [/tool netwatch get [:pick $nwExisting 0] status]
         :local prefCmt ("auto-nd-" . $vlanName . "-" . $preferredPool)
         :local fallCmt ("auto-nd-" . $vlanName . "-" . $fallbackPool)
-        # Time-property reads wrapped in [:totime ...] — see v6NdReconcile
-        # for the type-mismatch quirk this works around.
-        :if ($nwStatus = "up") do={
-            :local cur [:totime [/ipv6 nd prefix get [find comment=$prefCmt] preferred-lifetime]]
-            :if ($cur = 0s) do={
-                /ipv6 nd prefix set [find comment=$prefCmt] preferred-lifetime=30m
-                :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $prefCmt . " 0s -> 30m (probe up)")
-            }
-            :set cur [:totime [/ipv6 nd prefix get [find comment=$fallCmt] preferred-lifetime]]
-            :if ($cur != 0s) do={
-                /ipv6 nd prefix set [find comment=$fallCmt] preferred-lifetime=0s
-                :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $fallCmt . " -> 0s (probe up)")
-            }
+        # Resolve nd-prefix ids up front; skip cleanly if either is
+        # missing (mirroring v6NdReconcile's pattern -- avoids passing
+        # an empty find result into `get`, which would error).
+        :local prefExisting [/ipv6 nd prefix find comment=$prefCmt]
+        :local fallExisting [/ipv6 nd prefix find comment=$fallCmt]
+        :if ([:len $prefExisting] = 0 or [:len $fallExisting] = 0) do={
+            :log warning ("wan-reconciler: " . $prefCmt . " or " . $fallCmt . " missing -- re-declare in /ipv6 nd prefix (config.rsc) or re-apply")
+            :return true
         }
-        :if ($nwStatus = "down") do={
-            :local cur [:totime [/ipv6 nd prefix get [find comment=$prefCmt] preferred-lifetime]]
-            :if ($cur != 0s) do={
-                /ipv6 nd prefix set [find comment=$prefCmt] preferred-lifetime=0s
-                :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $prefCmt . " -> 0s (probe down)")
-            }
-            :set cur [:totime [/ipv6 nd prefix get [find comment=$fallCmt] preferred-lifetime]]
-            :if ($cur = 0s) do={
-                /ipv6 nd prefix set [find comment=$fallCmt] preferred-lifetime=30m
-                :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $fallCmt . " 0s -> 30m (probe down)")
-            }
+        :local prefId [:pick $prefExisting 0]
+        :local fallId [:pick $fallExisting 0]
+        # Target values implied by probe status: probe up means the
+        # preferred-pool entry should be preferred (30m) and the
+        # fallback-pool entry deprecated (0s); probe down is the
+        # inverse. Skip anything else (e.g., status=unknown during
+        # startup-delay -- the up/down scripts will set values on
+        # the first transition).
+        :local prefTarget
+        :local fallTarget
+        :if ($nwStatus = "up") do={ :set prefTarget 30m; :set fallTarget 0s }
+        :if ($nwStatus = "down") do={ :set prefTarget 0s; :set fallTarget 30m }
+        :if ([:typeof $prefTarget] = "nothing") do={ :return true }
+        # Update if different. Time-property reads wrapped in
+        # [:totime ...] -- see v6NdReconcile for the type-mismatch
+        # quirk this works around.
+        :local prefCur [:totime [/ipv6 nd prefix get $prefId preferred-lifetime]]
+        :if ($prefCur != $prefTarget) do={
+            /ipv6 nd prefix set $prefId preferred-lifetime=$prefTarget
+            :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $prefCmt . " " . $prefCur . " -> " . $prefTarget . " (probe " . $nwStatus . ")")
+        }
+        :local fallCur [:totime [/ipv6 nd prefix get $fallId preferred-lifetime]]
+        :if ($fallCur != $fallTarget) do={
+            /ipv6 nd prefix set $fallId preferred-lifetime=$fallTarget
+            :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $fallCmt . " " . $fallCur . " -> " . $fallTarget . " (probe " . $nwStatus . ")")
         }
     }
     # --- netwatch src-address reconciler: keep each WAN-probe's
