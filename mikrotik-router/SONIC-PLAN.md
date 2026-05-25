@@ -163,7 +163,9 @@ that v4 probes miss.
   `preferred-lifetime`, wait the next 10m reconciler tick; it
   should be restored to match the probe's current status.
 
-## Stages 0–3 — applied 2026-05-21/22
+## Stages 0–3 — applied 2026-05-21..23
+
+Stage 0 probes 21st; Stages 1-3 v1 22nd; Stage 3 v2 23rd.
 
 Live state is `config.rsc`; the git log captures the apply sequence
 per stage. For the design decisions, dead-ends, and architectural

@@ -120,12 +120,18 @@ while true; do
     # and exits the ssh client with code 1, which `set -o pipefail`
     # then propagates through grep, causing the loop to never detect
     # router-back. Letting stdin EOF close the session is sufficient.
-    if $SSH_NOKHOST -o ConnectTimeout=1 "$ROUTER" ":put alive" 2>/dev/null | grep -q alive; then
+    # ConnectTimeout=2: a 1s ceiling was too tight against the SYN-
+    # retransmit window during the reboot's "TCP listens but stalls
+    # before handshake" sliver -- bumping to 2s makes detection
+    # more reliable. Each iteration is then up to ~3s (2s connect +
+    # 1s sleep) during the down window; ~90 polls is ~3-4 min worst
+    # case, with typical recovery in under a minute.
+    if $SSH_NOKHOST -o ConnectTimeout=2 "$ROUTER" ":put alive" 2>/dev/null | grep -q alive; then
         break
     fi
     attempt=$((attempt + 1))
     if [ $attempt -gt 90 ]; then
-        echo "ERROR: router did not return within 90 polls (~2 min)" >&2
+        echo "ERROR: router did not return within 90 polls (~3-4 min)" >&2
         echo "       try the IPv6 link-local backdoor — see README.md Recovery" >&2
         exit 1
     fi

@@ -21,8 +21,8 @@ and re-apply.
 - `IPV6-PLAN.md` — v6 design reference. Phases A + B-MB applied;
   Phase C is folded into the Sonic Stage buildout.
 - `SONIC-PLAN.md` — staged Sonic WAN buildout. Stages 0–4 applied
-  2026-05-22..24 (Stage 4 = Netwatch + preferred-lifetime flip;
-  Bug A retrofit to v6 foreign-source probes landed 2026-05-24).
+  2026-05-21..24 (Stage 0 probes 21st; Stages 1-3 v1 22nd; Stage 3 v2
+  + Stage 4 23rd; Bug A retrofit to v6 foreign-source probes 24th).
 - `LESSONS.md` — architectural lessons learned during the buildout
   (RouterOS 7.x gotchas, design dead-ends, generalizable patterns).
 
@@ -56,7 +56,7 @@ The script does:
    [Recovery](#recovery).
 5. **Poll for the router to come back**. Clears the stale host-key
    entry first (`/system reset-configuration` regenerates the SSH
-   host key). Times out after 2 minutes with a recovery pointer.
+   host key). Times out after ~3-4 minutes with a recovery pointer.
 6. **Verify `config.rsc: done` log marker** is present — catches the
    "import aborted mid-script" failure mode (which the parse-check
    in step 2 won't catch on its own; property-name and runtime

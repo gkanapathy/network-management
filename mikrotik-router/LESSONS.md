@@ -388,6 +388,42 @@ wan-reconciler used bare `:return` for a while because its call
 ordering happened to dodge the trap; rewrote to `:return true`
 defensively after hitting it during the dual-GUA expansion.
 
+### `do={}` function values don't see sibling locals
+
+`:local fn do={...}` defines a function value. When called via
+`$fn`, the body runs in its OWN scope and **cannot see other
+`:local`s declared in the defining scope** — even if the call is
+syntactically nested. References to those names resolve to
+nothing, silently.
+
+Probed 2026-05-25:
+
+```
+:do {
+    :local outer do={ :return "outer-ok" }
+    :local inner do={ :return [$outer] }   ; $outer is nothing here
+    :put [$inner]                          ; prints empty line
+}
+```
+
+This silently breaks helper composition. The first refactor of
+`wan-reconciler` to hoist a shared `prefixLenToMask` helper hit
+this: `[$prefixLenToMask $poolMaskLen]` from inside
+`v6NdReconcile` returned nothing, the transient guard's mask
+became empty, `boundPoolNet != poolNet` evaluated `nothing !=
+nothing` (false), and the reconciler wrote `::/64` into two
+`/ipv6 nd prefix` entries during the apply-day bind window.
+
+**Fix: pass helpers explicitly as arguments.** Function values
+are first-class — `$callee arg1 arg2 $helperFn` works, and the
+callee can `:local helperFn $3` to give it a usable name. Costs
+one signature slot per helper-using function, but it's the only
+reliable way to share a helper across `do={}` bodies short of
+duplicating it.
+
+`:global` would also work but pollutes router-wide state. Pass
+by argument.
+
 ### RouterOS interactive SSH scoping
 
 When piping multiple commands via SSH stdin (heredoc, multi-line
@@ -438,7 +474,7 @@ sequence. Brief milestones:
 
 - **Phases A + B-MB applied 2026-05-09** — ULA `/48` per VLAN, MB
   DHCPv6-PD `/56` delegation, RA + RDNSS.
-- **Sonic Stages 0-3 applied 2026-05-21/22** — Stage 0 probes
+- **Sonic Stages 0-3 applied 2026-05-21..23** — Stage 0 probes
   captured Sonic delivery shape (DHCP/IPoE, IA_NA + IA_PD /56, 6h
   lease). Stage 1 added Sonic as passive secondary. Stage 2 v5
   shipped v4 per-VLAN source-based PBR after v1-v4 mangle attempts

@@ -291,7 +291,7 @@ controller exposes per-SSID IPv6 toggles, leave them consistent with
 ## Phase C apply staging
 
 Phase C is staged as [`SONIC-PLAN.md`](SONIC-PLAN.md) Stages 0–4,
-all applied 2026-05-22 through 2026-05-24. Where this doc and
+all applied 2026-05-21 through 2026-05-24. Where this doc and
 SONIC-PLAN differ on Phase C specifics, SONIC-PLAN wins (notably:
 shipped Stage 3 swapped `advertise=yes/no` for static
 `/ipv6 nd prefix` with explicit `preferred-lifetime` bias, and
