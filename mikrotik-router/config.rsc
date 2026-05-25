@@ -393,18 +393,35 @@ add name=wan-reconciler source={
         :local vlanName $1
         :local poolName $2
         :local ltCap 30m
-        :local addrId [:pick [/ipv6 address find interface=$vlanName from-pool=$poolName] 0]
-        :if ([:typeof $addrId] = "nothing") do={
+        # Pool-delegation check first: if the pool isn't populated,
+        # /ipv6 address bound to it can't be trusted yet (RouterOS
+        # may return half-bound transient values like "0:0:0:N::/64"
+        # where N is the sub-allocation index but the ISP /56 prefix
+        # hasn't been merged in). Skipping early here also avoids
+        # races on /ipv6 pool/get later in the function.
+        :local pools [/ipv6 pool find name=$poolName]
+        :if ([:len $pools] = 0) do={
+            :log warning ("wan-reconciler: pool " . $poolName . " not delegated yet")
+            :return true
+        }
+        :local poolId [:pick $pools 0]
+        # Pool prefix as ip6 + /56 network. We hardcode the /56 mask
+        # length because both ISPs deliver /56 in this deployment;
+        # if a future WAN delivers a different size, this needs to
+        # parse the masklen from poolPrefix instead.
+        :local poolPrefixStr [/ipv6 pool get $poolId prefix]
+        :local poolPrefixSlash [:find $poolPrefixStr "/"]
+        :local poolPrefixIp [:toip6 [:pick $poolPrefixStr 0 $poolPrefixSlash]]
+        :local mask56 [:toip6 "ffff:ffff:ffff:ff00::"]
+        :local pool56 ($poolPrefixIp & $mask56)
+        :local addrIds [/ipv6 address find interface=$vlanName from-pool=$poolName]
+        :if ([:len $addrIds] = 0) do={
             :log warning ("wan-reconciler: no /ipv6 address " . $vlanName . " " . $poolName)
             :return true
         }
+        :local addrId [:pick $addrIds 0]
         # Read the bound /ipv6 address (returned as the string
-        # "<addr>/<masklen>"), strip the mask, parse to ip6, and mask
-        # to the /64 network. We compare and write the network /64
-        # only -- the eui-64=yes entries (probe-src-*) carry a host
-        # address in the host portion which we deliberately discard
-        # here; /ipv6 nd prefix should advertise the /64, not a host
-        # address.
+        # "<addr>/<masklen>"), strip the mask, parse to ip6.
         :local raw [/ipv6 address get $addrId address]
         :local slashPos [:find $raw "/"]
         :if ([:typeof $slashPos] = "nothing") do={
@@ -416,17 +433,24 @@ add name=wan-reconciler source={
             :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " :toip6 failed on " . $raw)
             :return true
         }
-        :local boundNet ($hostIp & [:toip6 "ffff:ffff:ffff:ffff::"])
         # Transient apply-day / dhcp-rebind guard: while /ipv6 address
-        # is being bound, RouterOS briefly returns garbage forms like
-        # "::/64" (placeholder) or "::6f4:1cff:fe51:bad8/64" (host bits
-        # only, no prefix). Both produce net=:: after masking. Skip
-        # these so we don't write garbage into /ipv6 nd prefix prefix=
-        # and have to wait 10m for the next tick to heal.
-        :if ($boundNet = [:toip6 "::"]) do={
-            :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " /ipv6 address bind in progress (" . $raw . "), retry next tick")
+        # is being bound, RouterOS briefly returns garbage forms with
+        # the /56 ISP prefix not yet merged in -- "::/64" (placeholder),
+        # "::host/64" (host bits only), or "0:0:0:N::/64" (sub-alloc
+        # index N but no /56 prefix yet). All have a /56 of "::/56"
+        # which doesn't match the pool's actual delegated /56. Skip
+        # so we don't write garbage into /ipv6 nd prefix prefix= and
+        # then have to wait 10m for the next tick to heal.
+        :local bound56 ($hostIp & $mask56)
+        :if ($bound56 != $pool56) do={
+            :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " /ipv6 address bind in progress (" . $raw . " not in " . $poolPrefixStr . "), retry next tick")
             :return true
         }
+        # We compare and write the network /64 only -- the eui-64=yes
+        # entries (probe-src-*) carry a host address in the host
+        # portion which we deliberately discard; /ipv6 nd prefix
+        # should advertise the /64, not a host address.
+        :local boundNet ($hostIp & [:toip6 "ffff:ffff:ffff:ffff::"])
         :local boundPrefix ([:tostr $boundNet] . "/64")
         :local cmt ("auto-nd-" . $vlanName . "-" . $poolName)
         :local ndExisting [/ipv6 nd prefix find comment=$cmt]
@@ -444,7 +468,10 @@ add name=wan-reconciler source={
             /ipv6 nd prefix set $ndId prefix=$boundPrefix
             :log info ("wan-reconciler: ROTATED nd " . $vlanName . "-" . $poolName . ": " . $cur . " -> " . $boundPrefix)
         }
-        # Lifetime tracking from pool, clamped at 30m.
+        # Lifetime tracking from pool, clamped at 30m. $poolId from
+        # the pool-delegation check at the top of the function is
+        # still valid here (the pool can't have disappeared between
+        # then and now in the same script invocation).
         #
         # NB: /ipv6 pool and /ipv6 nd prefix `get` for time-typed
         # properties (valid-lifetime / preferred-lifetime) return
@@ -452,24 +479,21 @@ add name=wan-reconciler source={
         # (e.g., $x = 0s, $x > $ltCap) silently fails due to type
         # mismatch. Wrap reads in [:totime ...] so the comparisons
         # actually work.
-        :local poolId [:pick [/ipv6 pool find name=$poolName] 0]
-        :if ([:typeof $poolId] != "nothing") do={
-            :local poolValid [:totime [/ipv6 pool get $poolId valid-lifetime]]
-            :if ($poolValid > $ltCap) do={ :set poolValid $ltCap }
-            :local ndValid [:totime [/ipv6 nd prefix get $ndId valid-lifetime]]
-            :if ($ndValid != $poolValid) do={
-                /ipv6 nd prefix set $ndId valid-lifetime=$poolValid
-            }
-            # preferred-lifetime: only for "preferred" entries (current >0s).
-            # Deprecated entries (current=0s) are managed by the up/down
-            # scripts + ndPreferredReconcile; don't override.
-            :local ndPref [:totime [/ipv6 nd prefix get $ndId preferred-lifetime]]
-            :if ($ndPref > 0s) do={
-                :local poolPref [:totime [/ipv6 pool get $poolId preferred-lifetime]]
-                :if ($poolPref > $ltCap) do={ :set poolPref $ltCap }
-                :if ($ndPref != $poolPref) do={
-                    /ipv6 nd prefix set $ndId preferred-lifetime=$poolPref
-                }
+        :local poolValid [:totime [/ipv6 pool get $poolId valid-lifetime]]
+        :if ($poolValid > $ltCap) do={ :set poolValid $ltCap }
+        :local ndValid [:totime [/ipv6 nd prefix get $ndId valid-lifetime]]
+        :if ($ndValid != $poolValid) do={
+            /ipv6 nd prefix set $ndId valid-lifetime=$poolValid
+        }
+        # preferred-lifetime: only for "preferred" entries (current >0s).
+        # Deprecated entries (current=0s) are managed by the up/down
+        # scripts + ndPreferredReconcile; don't override.
+        :local ndPref [:totime [/ipv6 nd prefix get $ndId preferred-lifetime]]
+        :if ($ndPref > 0s) do={
+            :local poolPref [:totime [/ipv6 pool get $poolId preferred-lifetime]]
+            :if ($poolPref > $ltCap) do={ :set poolPref $ltCap }
+            :if ($ndPref != $poolPref) do={
+                /ipv6 nd prefix set $ndId preferred-lifetime=$poolPref
             }
         }
     }
@@ -528,6 +552,19 @@ add name=wan-reconciler source={
     :local netwatchSrcReconcile do={
         :local probeComment $1
         :local poolName $2
+        # Pool-delegation check first (same shape as v6NdReconcile):
+        # if the pool isn't populated, /ipv6 address bound to it may
+        # have a half-bound transient value with no real /56 prefix.
+        :local pools [/ipv6 pool find name=$poolName]
+        :if ([:len $pools] = 0) do={
+            :log warning ("wan-reconciler: pool " . $poolName . " not delegated yet")
+            :return true
+        }
+        :local poolPrefixStr [/ipv6 pool get [:pick $pools 0] prefix]
+        :local poolPrefixSlash [:find $poolPrefixStr "/"]
+        :local poolPrefixIp [:toip6 [:pick $poolPrefixStr 0 $poolPrefixSlash]]
+        :local mask56 [:toip6 "ffff:ffff:ffff:ff00::"]
+        :local pool56 ($poolPrefixIp & $mask56)
         :local addrCmt ("probe-src-" . $poolName)
         :local addrExisting [/ipv6 address find comment=$addrCmt]
         :if ([:len $addrExisting] = 0) do={
@@ -540,15 +577,20 @@ add name=wan-reconciler source={
         :if ([:typeof $slashPos] != "nothing") do={
             :set addr [:pick $raw 0 $slashPos]
         }
-        # Apply-day transient guard: while /ipv6 address is still
-        # binding the address may be "::/64" or "::host/64" (no prefix
-        # part yet). Don't overwrite the netwatch bootstrap with a
-        # garbage src-address -- the next reconciler call will see the
-        # real bound GUA and update normally.
+        # Apply-day / dhcp-rebind transient guard: while /ipv6 address
+        # is still binding, RouterOS may return forms like "::host/64"
+        # or "0:0:0:N:host/64" where the ISP /56 prefix hasn't been
+        # merged in yet. Don't overwrite the netwatch src-address with
+        # such a value -- if the bound /56 doesn't match the pool's
+        # /56, we're still in a transient state.
         :local addrIp [:toip6 $addr]
-        :local net ($addrIp & [:toip6 "ffff:ffff:ffff:ffff::"])
-        :if ($net = [:toip6 "::"]) do={
-            :log warning ("wan-reconciler: " . $addrCmt . " /ipv6 address bind in progress (" . $raw . "), retry next tick")
+        :if ([:typeof $addrIp] != "ip6") do={
+            :log warning ("wan-reconciler: " . $addrCmt . " :toip6 failed on " . $raw)
+            :return true
+        }
+        :local bound56 ($addrIp & $mask56)
+        :if ($bound56 != $pool56) do={
+            :log warning ("wan-reconciler: " . $addrCmt . " /ipv6 address bind in progress (" . $raw . " not in " . $poolPrefixStr . "), retry next tick")
             :return true
         }
         :local nwExisting [/tool netwatch find comment=$probeComment]
