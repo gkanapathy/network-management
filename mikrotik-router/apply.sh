@@ -38,18 +38,18 @@ BACKUP_NAME=before-apply
 #
 # Pre-reset calls use StrictHostKeyChecking=accept-new: first-time
 # connect TOFU's the host key into known_hosts, subsequent connects
-# verify against it, and a CHANGED key FAILS loudly. With routine
-# applies no longer rotating the host key (we removed /ip ssh
-# regenerate-host-key from config.rsc), a mismatch now genuinely
-# means something unusual — cold bootstrap, manual rotation, or
-# RouterOS upgrade. README.md Recovery covers the `ssh-keygen -R`
-# step for the cold-bootstrap case.
+# verify against it. The pre-reset side relies on known_hosts being
+# up-to-date from the prior apply (which refreshed it via the
+# ssh-keygen -R + ssh-keyscan block after polling). On a totally
+# fresh machine, the first apply ever TOFUs the key.
 #
-# Post-reset calls (poll loop + marker check) use SSH_NOKHOST as
-# defense-in-depth — if a cold-bootstrap happened and known_hosts
-# wasn't cleaned, apply.sh still completes. Routine applies don't
-# need it (host key persists) but it's harmless and keeps the
-# script tolerant of weird states.
+# Post-reset calls (poll loop + marker check) use SSH_NOKHOST.
+# /system reset-configuration regenerates the host key on every
+# routine apply in this setup (the /ip ssh set host-key-type=ed25519
+# in config.rsc triggers regen each time reset rolls /ip ssh back
+# to defaults), so known_hosts is stale until the ssh-keygen -R +
+# ssh-keyscan refresh at the end of step 4 puts the new key in
+# place. Bypassing known_hosts for the polling avoids a wedge there.
 SSH="ssh -q -o StrictHostKeyChecking=accept-new"
 SCP="scp -q -o StrictHostKeyChecking=accept-new"
 SSH_NOKHOST="ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
@@ -109,7 +109,7 @@ echo "==> APPLY (wipe-and-replay) — router will reboot"
 $SSH "$ROUTER" "/system reset-configuration no-defaults=yes skip-backup=yes keep-users=yes run-after-reset=$CONFIG" || true
 
 # === 4. wait for router ======================================================
-echo "==> polling for router"
+echo "==> polling for router (host key will rotate)"
 attempt=0
 while true; do
     # No trailing `quit` -- RouterOS treats it as a session interrupt
@@ -121,7 +121,7 @@ while true; do
     fi
     attempt=$((attempt + 1))
     if [ $attempt -gt 90 ]; then
-        echo "ERROR: router did not return within 3 minutes" >&2
+        echo "ERROR: router did not return within 90 polls (~2 min)" >&2
         echo "       try the IPv6 link-local backdoor — see README.md Recovery" >&2
         exit 1
     fi
@@ -129,12 +129,20 @@ while true; do
 done
 echo "    router back after $attempt polls"
 
-# With `/ip ssh regenerate-host-key` removed from config.rsc, the
-# router's SSH host key now persists across routine `/system
-# reset-configuration` applies. known_hosts stays valid; no refresh
-# needed. Cold-bootstrap (button reset / netinstall) does regenerate
-# the host key as part of factory state, and is documented as a
-# manual `ssh-keygen -R 192.168.88.1` step in README.md Recovery.
+# Refresh known_hosts. /system reset-configuration regenerates the
+# SSH host key in our setup (even with /ip ssh regenerate-host-key
+# removed from config.rsc -- the host-key-type=ed25519 setter in
+# /ip ssh triggers regen each time reset clears it back to the
+# default rsa). Empirically verified post-apply: known_hosts entry
+# differs from the live key. Without this refresh, the next
+# interactive SSH outside apply.sh would hit host-key-changed and
+# require manual `ssh-keygen -R`. Failures here (e.g., read-only
+# ~/.ssh in a sandboxed environment) are tolerated; the apply
+# itself doesn't depend on known_hosts being clean.
+ssh-keygen -R "$ROUTER_HOST" >/dev/null 2>&1 || true
+# -q suppresses ssh-keyscan's banner-line header so it doesn't
+# accumulate in known_hosts on every apply.
+ssh-keyscan -q -T 5 -t ed25519 "$ROUTER_HOST" 2>/dev/null >> ~/.ssh/known_hosts || true
 
 # === 5. verify completion =====================================================
 # Poll for THIS apply's nonced "config.rsc: done" marker. The nonce
@@ -146,7 +154,7 @@ echo "==> polling for config.rsc: done apply-$NONCE marker"
 attempt=0
 marker_seen=0
 while [ $attempt -lt 60 ]; do
-    if $SSH_NOKHOST "$ROUTER" '/log print' 2>/dev/null | grep -qF "config.rsc: done apply-$NONCE"; then
+    if $SSH_NOKHOST "$ROUTER" '/log print where message~"config.rsc"' 2>/dev/null | grep -qF "config.rsc: done apply-$NONCE"; then
         marker_seen=1
         break
     fi
@@ -156,7 +164,7 @@ done
 if [ "$marker_seen" -eq 0 ]; then
     echo "ERROR: 'config.rsc: done apply-$NONCE' marker not observed within ~2 minutes — import likely aborted mid-script" >&2
     echo "       last 10 config.rsc log entries:" >&2
-    $SSH_NOKHOST "$ROUTER" '/log print' 2>/dev/null | grep "config.rsc" | tail -10 >&2 || true
+    $SSH_NOKHOST "$ROUTER" '/log print where message~"config.rsc"' 2>/dev/null | tail -10 >&2 || true
     exit 1
 fi
 echo "    config.rsc: done marker present (apply-$NONCE, $attempt polls)"

@@ -196,9 +196,12 @@ add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1 ra-interval=15s-
 #   post-quantum KEX (RouterOS 7.21.4 has none), so OpenSSH 9.x will still
 #   warn about "store now, decrypt later"; that warning won't go away until
 #   MikroTik ships PQ-KEX support upstream.
-# - host-key-type=ed25519: smaller, faster, modern key. RouterOS rebuilds
-#   the host key automatically if this property changes; no explicit
-#   regenerate-host-key needed.
+# - host-key-type=ed25519: smaller, faster, modern key. Note that setting
+#   this triggers RouterOS to (re)generate a new host key, because
+#   /system reset-configuration rolls /ip ssh back to defaults (rsa)
+#   before run-after-reset runs. So routine applies DO rotate the host
+#   key as a side-effect -- apply.sh's ssh-keygen -R + ssh-keyscan
+#   refresh in the polling step is what absorbs the churn.
 # - host-key-size=4096: dormant for ed25519, only matters if anyone ever
 #   flips host-key-type back to rsa; cheap to set.
 # - forwarding-enabled=no: refuse SSH-tunnel/jump-host use of the router.
@@ -206,13 +209,9 @@ add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1 ra-interval=15s-
 # OpenSSH's MaxAuthTries). Brute-force resistance lives elsewhere — we
 # rely on key-only auth + service `address=` scoping below.
 #
-# We deliberately do NOT call `/ip ssh regenerate-host-key` on every
-# apply. /system reset-configuration preserves the on-disk host key, so
-# removing the regen means routine applies don't roll the host key and
-# don't churn known_hosts. Host-key changes now signal real events
-# (cold bootstrap, manual rotation, or RouterOS upgrade) -- matching
-# the loud-on-mismatch semantic that apply.sh's accept-new policy
-# relies on.
+# No explicit `/ip ssh regenerate-host-key` call -- the type setter
+# above already triggers regen each apply, so an explicit regen would
+# just rotate twice.
 /ip ssh
 set password-authentication=yes strong-crypto=yes host-key-type=ed25519 host-key-size=4096 forwarding-enabled=no
 
@@ -319,6 +318,12 @@ add name=wan-reconciler policy=read,write,test source={
         # in close succession; find-then-add would create duplicates).
         # If the comment-tagged entry is missing, log loudly and skip
         # -- restoration requires re-apply or manual re-declare.
+        # src-rule update sets both src-address (the /56 we just
+        # learned from the lease) AND table (the named per-pool table
+        # the src maps to). dst-rule update below sets only dst-address
+        # -- dst rules always route to `main` (where the connected
+        # LAN routes live), which never changes, so the table= field
+        # is stable from bootstrap and doesn't need reconciling.
         :local srcCmt ("auto-v6-src-" . $poolName)
         :local srcExisting [/routing rule find comment=$srcCmt]
         :if ([:len $srcExisting] = 0) do={
