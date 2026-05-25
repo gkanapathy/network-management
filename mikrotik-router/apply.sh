@@ -49,9 +49,14 @@ BACKUP_NAME=before-apply
 # stale until the ssh-keygen -R + ssh-keyscan refresh at the end
 # of step 4 puts the new key in place. Bypassing known_hosts for
 # the polling avoids a wedge there.
-SSH="ssh -q -o StrictHostKeyChecking=accept-new"
-SCP="scp -q -o StrictHostKeyChecking=accept-new"
-SSH_NOKHOST="ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+# BatchMode=yes makes SSH/SCP fail fast on auth errors instead of
+# prompting for a password on stdin. Without it, a cold bootstrap
+# where the .pub wasn't staged (router falls back to password auth)
+# would hang the poll loop forever waiting for input, and the 90-poll
+# timeout would never trigger.
+SSH="ssh -q -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+SCP="scp -q -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+SSH_NOKHOST="ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
 # Run from the directory containing this script so relative paths
 # (config.rsc, snapshots/) resolve regardless of caller's cwd.

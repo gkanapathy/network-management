@@ -703,32 +703,41 @@ add name=wan-reconciler policy=read,write,test source={
 :if ([:len [/system script find name=sonic-up]]   > 0) do={ /system script remove [find name=sonic-up]   }
 :if ([:len [/system script find name=mb-down]]    > 0) do={ /system script remove [find name=mb-down]    }
 :if ([:len [/system script find name=mb-up]]      > 0) do={ /system script remove [find name=mb-up]      }
+# Promote-to-30m sets pin valid-lifetime=30m alongside
+# preferred-lifetime=30m to keep RFC 4861's preferred <= valid
+# invariant if v6NdReconcile's pool-lifetime clamp had previously
+# trimmed valid below 30m (e.g., during a long WAN outage where the
+# lease was expiring). RouterOS rejects set commands that violate
+# the invariant; without co-setting valid we'd risk aborting the
+# script mid-flip and leaving half the VLANs unflipped. The
+# reconciler will re-clamp valid to min(pool_lifetime, 30m) on its
+# next tick if the pool lease is still small.
 add name=sonic-down policy=read,write,test,reboot source={
     :log info "sonic-down: deprecating sonic-pd on vlan10+vlan88, promoting mb-pd"
     /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=0s
-    /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=30m valid-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan88-sonic-pd] preferred-lifetime=0s
-    /ipv6 nd prefix set [find comment=auto-nd-vlan88-mb-pd]    preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan88-mb-pd]    preferred-lifetime=30m valid-lifetime=30m
 }
 add name=sonic-up policy=read,write,test,reboot source={
     :log info "sonic-up: restoring sonic-pd preferred on vlan10+vlan88, deprecating mb-pd"
-    /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=30m valid-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=0s
-    /ipv6 nd prefix set [find comment=auto-nd-vlan88-sonic-pd] preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan88-sonic-pd] preferred-lifetime=30m valid-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan88-mb-pd]    preferred-lifetime=0s
 }
 add name=mb-down policy=read,write,test,reboot source={
     :log info "mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd"
     /ipv6 nd prefix set [find comment=auto-nd-vlan20-mb-pd]    preferred-lifetime=0s
-    /ipv6 nd prefix set [find comment=auto-nd-vlan20-sonic-pd] preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan20-sonic-pd] preferred-lifetime=30m valid-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan30-mb-pd]    preferred-lifetime=0s
-    /ipv6 nd prefix set [find comment=auto-nd-vlan30-sonic-pd] preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan30-sonic-pd] preferred-lifetime=30m valid-lifetime=30m
 }
 add name=mb-up policy=read,write,test,reboot source={
     :log info "mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd"
-    /ipv6 nd prefix set [find comment=auto-nd-vlan20-mb-pd]    preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan20-mb-pd]    preferred-lifetime=30m valid-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan20-sonic-pd] preferred-lifetime=0s
-    /ipv6 nd prefix set [find comment=auto-nd-vlan30-mb-pd]    preferred-lifetime=30m
+    /ipv6 nd prefix set [find comment=auto-nd-vlan30-mb-pd]    preferred-lifetime=30m valid-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan30-sonic-pd] preferred-lifetime=0s
 }
 
@@ -938,11 +947,18 @@ add src-address=192.168.88.0/24 action=lookup table=sonic comment="mgmt -> sonic
 # pattern races and creates duplicate rules. Declaring statically +
 # only ever updating via `set` is race-free (idempotent set with same
 # value).
+# All dst-rules grouped above src-rules: routing rules are evaluated
+# top-down, first match wins. A LAN-to-LAN packet between two clients
+# whose GUAs are in the same PD /56 needs to match the dst rule
+# (-> main, where the connected /64 routes live) BEFORE the src rule
+# (-> table=<wan>, which would shunt the inter-LAN packet out the WAN).
+# Mirrors the v4 structure above where dst=192.168.0.0/16 -> main
+# is first.
 add dst-address=fd7f:aee1:6ce0::/48      action=lookup table=main  comment="v6 ULA LAN dsts -> main"
-add src-address=2607:f598:d488:6100::/56 action=lookup table=mb    comment="auto-v6-src-mb-pd"
 add dst-address=2607:f598:d488:6100::/56 action=lookup table=main  comment="auto-v6-dst-mb-pd"
-add src-address=2001:5a8:6a5:4600::/56   action=lookup table=sonic comment="auto-v6-src-sonic-pd"
 add dst-address=2001:5a8:6a5:4600::/56   action=lookup table=main  comment="auto-v6-dst-sonic-pd"
+add src-address=2607:f598:d488:6100::/56 action=lookup table=mb    comment="auto-v6-src-mb-pd"
+add src-address=2001:5a8:6a5:4600::/56   action=lookup table=sonic comment="auto-v6-src-sonic-pd"
 
 # --- v6 default routes per routing table (Stage 2) ---
 # Same shape as /ip route above; gateways are the upstream link-locals
@@ -1030,6 +1046,10 @@ add action=accept chain=input comment="accept UDP traceroute from LAN" dst-port=
 # the upstream router's link-local. Scoping to WAN prevents a LAN host
 # from crafting DHCPv6-shaped traffic aimed at the router's client.
 add action=accept chain=input comment="accept DHCPv6 PD" dst-port=546 protocol=udp src-address=fe80::/10 in-interface-list=WAN
+# Loopback accept (mirrors v4 input chain). Internal router processes
+# that communicate over ::1 need this; without it the drop-!LAN below
+# would catch them since `lo` isn't in the LAN interface-list.
+add action=accept chain=input comment="accept loopback v6" in-interface=lo src-address=::1 dst-address=::1
 add action=drop   chain=input comment="drop everything not from LAN" in-interface-list=!LAN
 
 # FastTrack-vs-PBR: see the v4 fasttrack note above. Same verification
