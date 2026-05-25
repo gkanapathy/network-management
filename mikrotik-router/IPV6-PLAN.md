@@ -36,11 +36,15 @@ primary-WAN failure.
                 (1 addr, NAT)            (ULA + 1 GUA per VLAN)
 ```
 
-Note: as-shipped design swapped RA `preferred-lifetime` bias (the
-original Phase C plan) for `advertise=yes/no` on `/ipv6 address`,
-after we found dynamic `/ipv6 nd prefix` entries reject `set` on
-7.21.4. See [`SONIC-PLAN.md`](SONIC-PLAN.md) Stage 3 for the
-post-mortem. Where this doc and SONIC-PLAN differ on Phase C
+Note: shipped Stage 3 ended up at *static* `/ipv6 nd prefix` entries
+with explicit `preferred-lifetime` per pool per VLAN — the original
+Phase C plan in spirit, but routed around the 7.21.4 quirk that
+dynamic (auto-derived from `from-pool=`) entries reject `set`. We
+first tried `advertise=yes/no` on `/ipv6 address` as a workaround
+(Stage 3 v1) before pivoting back. Shipped Stage 4 then ended up at
+a v6 foreign-source probe shape after the v4 LAN-src probe was
+found to be invisible to interface-down failures (Bug A,
+2026-05-24). Where this doc and SONIC-PLAN differ on Phase C
 specifics, SONIC-PLAN wins.
 
 ## Terms
@@ -219,12 +223,16 @@ and re-confirmed 2026-05-23). See [`LESSONS.md`](LESSONS.md).
       with `advertise=no`; `/ipv6 nd prefix` carries explicit
       preferred-lifetime per pool per VLAN.
       **(Stage 3 v2, 2026-05-23.)**
-- [ ] Netwatch entries probing both WANs, scripts wired on up/down.
-      **(Stage 4.)**
-- [ ] Pulling primary WAN cable: v4 traffic reroutes within
-      `check-gateway` window; v6 RAs flip `preferred-lifetime` and
-      clients migrate to the surviving GUA on the next RA (no DAD
-      wait — both addresses already held). **(Stage 4.)**
+- [x] Netwatch entries probing both WANs, scripts wired on up/down.
+      **(Stage 4, 2026-05-23; v6 foreign-source probe form after
+      Bug A retrofit 2026-05-24 — see [`LESSONS.md`](LESSONS.md).)**
+- [x] WAN-down failover: v4 traffic reroutes within `check-gateway`
+      window; v6 RAs flip `preferred-lifetime` and clients migrate
+      to the surviving GUA on the next RA (no DAD wait — both
+      addresses already held). **Logical equivalent verified via
+      `/interface set <wan> disabled=yes`** for both Sonic (2026-05-24)
+      and MB (2026-05-24). Physical cable-pull is a follow-on test
+      to validate L1 SFP-side detection.
 
 (Phase C was always going to be a big bundle; in practice we split it
 into Sonic Stages 2–4. See [`SONIC-PLAN.md`](SONIC-PLAN.md).)
@@ -275,23 +283,26 @@ controller exposes per-SSID IPv6 toggles, leave them consistent with
 
 ## Phase C apply staging
 
-Phase C is staged as [`SONIC-PLAN.md`](SONIC-PLAN.md) Stages 0–4.
-Stages 0–3 + wan-reconciler applied 2026-05-22; Stage 4 (Netwatch +
-`advertise=` flip) pending. Where this doc and SONIC-PLAN differ on
-Phase C specifics, SONIC-PLAN wins.
+Phase C is staged as [`SONIC-PLAN.md`](SONIC-PLAN.md) Stages 0–4,
+all applied 2026-05-22 through 2026-05-24. Where this doc and
+SONIC-PLAN differ on Phase C specifics, SONIC-PLAN wins (notably:
+shipped Stage 3 swapped `advertise=yes/no` for static
+`/ipv6 nd prefix` with explicit `preferred-lifetime` bias, and
+shipped Stage 4 uses v6 foreign-source probes instead of v4 LAN-src
+probes — both pivots are documented in [`LESSONS.md`](LESSONS.md)).
 
 ## Risks
 
 - **RA propagation latency** during failover — clients learn the
-  `advertise=` flip on the next RA. Tighten `min-rtr-adv-interval`
-  (15–30s) on the affected VLANs for faster recovery; don't go too
-  low or RA traffic itself becomes noise.
-- **Scripted state.** Stage 4's Netwatch `advertise=` flip is the
-  most stateful piece pending. Belt-and-suspenders pattern: extend
-  the wan-reconciler to re-assert `advertise=` from per-table route
-  active state so a missed Netwatch event doesn't leave the network
-  in a bad steady state (same pattern already shipped for the
-  `/routing rule` and route-gateway reconciliation).
+  `preferred-lifetime` flip on the next RA. RA cadence is tightened
+  to `ra-interval=15s-30s` on affected VLANs so failover converges
+  within one cycle. Going much lower would make RA itself noise.
+- **Scripted state.** Stage 4's Netwatch up/down scripts are the
+  most stateful piece. Belt-and-suspenders: `wan-reconciler`'s
+  `ndPreferredReconcile` pass re-asserts `preferred-lifetime` on
+  every 10m tick from the current netwatch probe status, so a
+  missed Netwatch event self-heals on the next tick. Same shape as
+  the other reconciler-managed surfaces.
 - **Firewall ordering:** Mistakes black-hole IPv6 or break ND; test
   from each SSID after changes.
 - **RouterOS schema gotchas** — see [`README.md`](README.md) Common

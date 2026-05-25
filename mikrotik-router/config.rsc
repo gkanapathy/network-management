@@ -25,18 +25,17 @@
 #   3. Lockout-safety prereqs: bridge / VLAN / addresses / SSH / service
 #   4. vlan-filtering=yes  <-- LOCKOUT-SAFETY GATE: SSH is locked in past here
 #   5. Routing tables + script definitions (large blocks; risky parse)
-#   6. DHCP servers + clients (clients added WITHOUT script= -- see step 10)
+#   6. DHCP servers + clients (clients added WITHOUT script= -- see step 9)
 #   7. /ipv6 address from-pool, /ipv6 nd prefix, /ip+/ipv6 route, /routing rule
 #      (reconciler-managed entries, declared with bootstrap literals)
 #   8. DNS + firewall + service-surface tightening
-#   9. Automation: scheduler tick + Netwatch probes
-#   10. Wire dhcp-client `script=` hooks + explicit wan-reconciler bootstrap
-#       (deferred to here so the apply-day dhcp-client bind doesn't fire the
-#       reconciler against half-declared state, which would spam "missing"
-#       warnings for not-yet-existing routing rules / routes / netwatch /
-#       /ipv6 nd prefix. By this point all dependencies exist.)
-#   11. Cosmetic: LEDs + reset-button binding (at the very end so a failure
-#       above doesn't leave LEDs in a confusing state)
+#   9. Netwatch probes + wire dhcp-client `script=` hooks + explicit
+#      wan-reconciler bootstrap + scheduler tick. Automation goes last
+#      (essential-first principle); script= deferred to here so the apply-
+#      day dhcp-client bind doesn't fire the reconciler against half-
+#      declared state.
+#  10. Cosmetic: LEDs + reset-button binding (at the very end so a failure
+#      above doesn't leave LEDs in a confusing state)
 # Errors below the gate (step 4) don't lock us out: SSH-via-mgmt-VLAN
 # (and IPv6-LL backdoor) keeps working, so the fix-and-reapply loop
 # doesn't need a button-reset cold bootstrap.
@@ -770,11 +769,23 @@ add from-pool=sonic-pd interface=vlan30 advertise=no
 # fast cleanup on /56 rotation while still comfortably surviving any
 # normal router reboot or apply outage.
 #
-# prefix= literals are bootstrap defaults matching the deterministic
-# RouterOS /64 allocation from each /56 (sequential by /ipv6 address
-# add order above: vlan88 gets the first /64, vlan10 the second, etc).
-# wan-reconciler reads the actually-bound /64 from /ipv6 address and
-# `set prefix=` if the /56 ever rotates.
+# prefix= literals are bootstrap defaults matching the *expected*
+# RouterOS /64 sub-allocation from each /56 (sequential by /ipv6
+# address add order above: vlan88 gets the first /64, vlan10 the
+# second, etc). wan-reconciler reads the actually-bound /64 from
+# /ipv6 address and `set prefix=` if it differs.
+#
+# Empirical quirk (observed 2026-05-24): when /ipv6 address entries
+# are declared before the dhcp-client (i.e., from-pool waits on the
+# lease), mb-pd's sub-allocation order doesn't strictly follow
+# declaration order -- vlan88 (eui-64=yes, first add) ends up at
+# /6104::/64 instead of /6100::/64. sonic-pd doesn't show the same
+# skew; both pools get the same declaration order, so it appears
+# RouterOS-specific to mb-pd's binding sequence. The reconciler
+# heals it (one ROTATED line in the apply-day log); since the
+# stored bootstrap doesn't predict the sub-allocation reliably,
+# we leave /6100 as the literal and accept the one-line drift
+# rather than chase a moving target.
 /ipv6 nd prefix
 add interface=vlan88 prefix=2607:f598:d488:6100::/64 preferred-lifetime=0s  valid-lifetime=30m comment="auto-nd-vlan88-mb-pd"
 add interface=vlan88 prefix=2001:5a8:6a5:4600::/64   preferred-lifetime=30m valid-lifetime=30m comment="auto-nd-vlan88-sonic-pd"
@@ -957,30 +968,6 @@ set allowed-interface-list=LAN
 /tool bandwidth-server
 set enabled=no
 
-# --- wan-reconciler scheduler tick (belt-and-suspenders) ---
-# Event-driven trigger is the dhcp-client script= hook above (fires on
-# lease bind/value-change, immediate reaction). This 10m tick catches
-# drift from any source the event misses -- manual edits, missed
-# events, bugs.
-#
-# /system scheduler is gated by /system device-mode. scheduler=yes is
-# already set on this router and persists across routine
-# wipe-and-replay applies, but a deeper reset (button-hold factory
-# reset, netinstall) restores device-mode to its defaults
-# (scheduler=no). Without the :do/on-error wrap, the `add` below would
-# raise an unhandled "not allowed by device-mode" error on cold
-# bootstrap and abort the import partway through -- leaving the
-# router half-configured. The wrap lets the import complete; the
-# event-driven script= hooks on dhcp-clients still work (they don't
-# need /system scheduler), so the loss is just the 10m polling
-# safety net. Recovery: `/system device-mode update scheduler=yes`
-# + front-button confirm, then re-apply (see README.md Recovery).
-:do {
-    /system scheduler add name=wan-reconciler-tick on-event="/system script run wan-reconciler" interval=10m
-} on-error={
-    :log warning "config.rsc: /system scheduler add failed (cold-bootstrap device-mode reset?). Event-driven reconciler still active; re-enable scheduler via /system device-mode + button-confirm to restore polling."
-}
-
 # --- Netwatch WAN-reachability probes ---
 # Per-WAN reachability probes targeting Cloudflare's v6 anycast
 # 2606:4700:4700::1111. src-address is the router's own host GUA in
@@ -1055,6 +1042,35 @@ set [find interface=sfp-sfpplus1] script="/system script run wan-reconciler"
 set [find interface=ether2]       script="/system script run wan-reconciler"
 set [find interface=sfp-sfpplus1] script="/system script run wan-reconciler"
 /system script run wan-reconciler
+
+# --- wan-reconciler scheduler tick (belt-and-suspenders) ---
+# Placed near the end of the script for two reasons:
+#  - "essential first, automation last" file ordering principle.
+#  - All reconciler-managed entries (/routing rule, routes, /ipv6 nd
+#    prefix, /tool netwatch) are declared above; scheduler firing
+#    has everything it needs.
+# Event-driven trigger is the dhcp-client script= hook (set just
+# above, fires on lease bind/value-change, immediate reaction). This
+# 10m tick catches drift from any source the event misses -- manual
+# edits, missed events, bugs.
+#
+# /system scheduler is gated by /system device-mode. scheduler=yes is
+# already set on this router and persists across routine
+# wipe-and-replay applies, but a deeper reset (button-hold factory
+# reset, netinstall) restores device-mode to its defaults
+# (scheduler=no). Without the :do/on-error wrap, the `add` below would
+# raise an unhandled "not allowed by device-mode" error on cold
+# bootstrap and abort the import partway through -- leaving the
+# router half-configured. The wrap lets the import complete; the
+# event-driven script= hooks on dhcp-clients still work (they don't
+# need /system scheduler), so the loss is just the 10m polling
+# safety net. Recovery: `/system device-mode update scheduler=yes`
+# + front-button confirm, then re-apply (see README.md Recovery).
+:do {
+    /system scheduler add name=wan-reconciler-tick on-event="/system script run wan-reconciler" interval=10m
+} on-error={
+    :log warning "config.rsc: /system scheduler add failed (cold-bootstrap device-mode reset?). Event-driven reconciler still active; re-enable scheduler via /system device-mode + button-confirm to restore polling."
+}
 
 # --- LEDs + reset-button-press toggle (cosmetic; placed at the end) ---
 # Default: turn off the front-panel LEDs after 1h of uptime. Lets us
