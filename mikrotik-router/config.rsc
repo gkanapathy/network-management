@@ -936,6 +936,14 @@ add action=accept chain=input comment="accept loopback" in-interface=lo src-addr
 add action=drop   chain=input comment="drop everything not from LAN" in-interface-list=!LAN
 
 # --- forward chain ---
+# MikroTik docs say FastTrack routes via the main routing table only
+# and doesn't respect /routing rule. Verified empirically 2026-05-25:
+# iot (vlan30, PBR -> table=mb) Netflix streams correctly via MB even
+# under FastTrack on both v4 and v6. RouterOS 7.21.4's actual behavior
+# is to use the conntrack's cached output interface (set when the
+# initial SYN went through /routing rule), not re-do main-table lookups
+# per packet. Safe to keep the broad fasttrack rule; revisit if a future
+# RouterOS version tightens the "main table only" semantic.
 add action=fasttrack-connection chain=forward comment="fasttrack" connection-state=established,related
 add action=accept chain=forward comment="accept established,related,untracked" connection-state=established,related,untracked
 add action=drop   chain=forward comment="drop invalid" connection-state=invalid
@@ -975,6 +983,9 @@ add action=accept chain=input comment="accept UDP traceroute" dst-port=33434-335
 add action=accept chain=input comment="accept DHCPv6 PD" dst-port=546 protocol=udp src-address=fe80::/10
 add action=drop   chain=input comment="drop everything not from LAN" in-interface-list=!LAN
 
+# FastTrack-vs-PBR: see the v4 fasttrack note above. Same verification
+# applies for v6 (iot vlan30, mb-pd-preferred GUA, streams via MB
+# correctly under FastTrack).
 add action=fasttrack-connection chain=forward comment="fasttrack6" connection-state=established,related
 add action=accept chain=forward comment="accept established,related,untracked" connection-state=established,related,untracked
 add action=drop   chain=forward comment="drop invalid" connection-state=invalid
