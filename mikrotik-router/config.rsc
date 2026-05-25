@@ -420,20 +420,28 @@ add name=wan-reconciler source={
             /ipv6 nd prefix set $ndId prefix=$bound
             :log info ("wan-reconciler: ROTATED nd " . $vlanName . "-" . $poolName . ": " . $cur . " -> " . $bound)
         }
-        # lifetime tracking from pool, clamped
+        # Lifetime tracking from pool, clamped at 30m.
+        #
+        # NB: /ipv6 pool and /ipv6 nd prefix `get` for time-typed
+        # properties (valid-lifetime / preferred-lifetime) return
+        # type=str, not type=time. Comparing against time literals
+        # (e.g., $x = 0s, $x > $ltCap) silently fails due to type
+        # mismatch. Wrap reads in [:totime ...] so the comparisons
+        # actually work.
         :local poolId [:pick [/ipv6 pool find name=$poolName] 0]
         :if ([:typeof $poolId] != "nothing") do={
-            :local poolValid [/ipv6 pool get $poolId valid-lifetime]
+            :local poolValid [:totime [/ipv6 pool get $poolId valid-lifetime]]
             :if ($poolValid > $ltCap) do={ :set poolValid $ltCap }
-            :local ndValid [/ipv6 nd prefix get $ndId valid-lifetime]
+            :local ndValid [:totime [/ipv6 nd prefix get $ndId valid-lifetime]]
             :if ($ndValid != $poolValid) do={
                 /ipv6 nd prefix set $ndId valid-lifetime=$poolValid
             }
             # preferred-lifetime: only for "preferred" entries (current >0s).
-            # Deprecated entries (current=0s) are Stage-4-managed; don't override.
-            :local ndPref [/ipv6 nd prefix get $ndId preferred-lifetime]
+            # Deprecated entries (current=0s) are managed by the up/down
+            # scripts + ndPreferredReconcile; don't override.
+            :local ndPref [:totime [/ipv6 nd prefix get $ndId preferred-lifetime]]
             :if ($ndPref > 0s) do={
-                :local poolPref [/ipv6 pool get $poolId preferred-lifetime]
+                :local poolPref [:totime [/ipv6 pool get $poolId preferred-lifetime]]
                 :if ($poolPref > $ltCap) do={ :set poolPref $ltCap }
                 :if ($ndPref != $poolPref) do={
                     /ipv6 nd prefix set $ndId preferred-lifetime=$poolPref
@@ -459,25 +467,27 @@ add name=wan-reconciler source={
         :local nwStatus [/tool netwatch get [:pick $nwExisting 0] status]
         :local prefCmt ("auto-nd-" . $vlanName . "-" . $preferredPool)
         :local fallCmt ("auto-nd-" . $vlanName . "-" . $fallbackPool)
+        # Time-property reads wrapped in [:totime ...] — see v6NdReconcile
+        # for the type-mismatch quirk this works around.
         :if ($nwStatus = "up") do={
-            :local cur [/ipv6 nd prefix get [find comment=$prefCmt] preferred-lifetime]
+            :local cur [:totime [/ipv6 nd prefix get [find comment=$prefCmt] preferred-lifetime]]
             :if ($cur = 0s) do={
                 /ipv6 nd prefix set [find comment=$prefCmt] preferred-lifetime=30m
                 :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $prefCmt . " 0s -> 30m (probe up)")
             }
-            :set cur [/ipv6 nd prefix get [find comment=$fallCmt] preferred-lifetime]
+            :set cur [:totime [/ipv6 nd prefix get [find comment=$fallCmt] preferred-lifetime]]
             :if ($cur != 0s) do={
                 /ipv6 nd prefix set [find comment=$fallCmt] preferred-lifetime=0s
                 :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $fallCmt . " -> 0s (probe up)")
             }
         }
         :if ($nwStatus = "down") do={
-            :local cur [/ipv6 nd prefix get [find comment=$prefCmt] preferred-lifetime]
+            :local cur [:totime [/ipv6 nd prefix get [find comment=$prefCmt] preferred-lifetime]]
             :if ($cur != 0s) do={
                 /ipv6 nd prefix set [find comment=$prefCmt] preferred-lifetime=0s
                 :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $prefCmt . " -> 0s (probe down)")
             }
-            :set cur [/ipv6 nd prefix get [find comment=$fallCmt] preferred-lifetime]
+            :set cur [:totime [/ipv6 nd prefix get [find comment=$fallCmt] preferred-lifetime]]
             :if ($cur = 0s) do={
                 /ipv6 nd prefix set [find comment=$fallCmt] preferred-lifetime=30m
                 :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $fallCmt . " 0s -> 30m (probe down)")

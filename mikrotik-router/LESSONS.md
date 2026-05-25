@@ -300,6 +300,49 @@ SSH session (run-count increments, side effects land) but fails from
 netwatch context with the error above. That asymmetry rules out a
 body-level bug and points straight at the caller envelope.
 
+### Time-typed properties return as strings from `get`; comparisons silently fail
+
+`/ipv6 pool get .. valid-lifetime`, `/ipv6 nd prefix get .. preferred-lifetime`,
+and similar "time" properties return values of **type `str`**, not type `time`
+— even though the value LOOKS like a time literal ("30m", "0s", "2d23h7m").
+
+This means comparing the value against a time literal silently fails:
+
+```
+:local v [/ipv6 nd prefix get [find comment=...] preferred-lifetime]
+:put [:typeof $v]      ; "str"
+:put ($v = 0s)         ; false  -- even when $v IS "0s"
+:put ($v != 0s)        ; true   -- always, regardless of value
+```
+
+The `=` and `!=` operators don't auto-coerce across types. A string
+"0s" and a time literal `0s` are unequal. Worse, ordering operators
+do whatever string-comparison would do (`"30m" > 0s` is not what you'd
+expect either).
+
+**Fix: wrap the read in `[:totime ...]`** so the value's type is
+actually time:
+
+```
+:local v [:totime [/ipv6 nd prefix get [find comment=...] preferred-lifetime]]
+:put [:typeof $v]      ; "time"
+:put ($v = 0s)         ; true   -- now works
+```
+
+Cost: a real bug in the Stage 4 `ndPreferredReconcile` path. The
+"if preferred-lifetime == 0s, restore to 30m" branch never fired,
+because the equality check was always false. Meanwhile the "if !=
+0s, deprecate" branch fired on EVERY tick (because the inequality
+was always true even when the value was already 0s), spamming log
+warnings on every 10m reconciler tick.
+
+Probe to discover the type: `:put [:typeof [/path/get ... <prop>]]`.
+Any RouterOS property worth doing arithmetic / comparisons on should
+get this check upfront if you're not 100% sure.
+
+Surfaced 2026-05-24 testing the reconciler's self-heal path with a
+manual misset.
+
 ### `:local` variable names cannot contain underscores
 
 `:local foo_bar 30m` errors with `Script Error: expected end of
