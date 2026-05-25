@@ -38,14 +38,18 @@ BACKUP_NAME=before-apply
 #
 # Pre-reset calls use StrictHostKeyChecking=accept-new: first-time
 # connect TOFU's the host key into known_hosts, subsequent connects
-# verify against it, and a CHANGED key (stale entry from a previous
-# apply not cleaned up, or actual MITM) FAILS loudly. That's the
-# correct security signal — apply.sh shouldn't silently accept a
-# rotated key before it's done the rotation itself.
+# verify against it, and a CHANGED key FAILS loudly. With routine
+# applies no longer rotating the host key (we removed /ip ssh
+# regenerate-host-key from config.rsc), a mismatch now genuinely
+# means something unusual — cold bootstrap, manual rotation, or
+# RouterOS upgrade. README.md Recovery covers the `ssh-keygen -R`
+# step for the cold-bootstrap case.
 #
-# Post-reset calls (poll loop + marker check) use SSH_NOKHOST instead
-# because we just rotated the host key ourselves; known_hosts is
-# expected to mismatch until the cleanup at the end of step 4.
+# Post-reset calls (poll loop + marker check) use SSH_NOKHOST as
+# defense-in-depth — if a cold-bootstrap happened and known_hosts
+# wasn't cleaned, apply.sh still completes. Routine applies don't
+# need it (host key persists) but it's harmless and keeps the
+# script tolerant of weird states.
 SSH="ssh -q -o StrictHostKeyChecking=accept-new"
 SCP="scp -q -o StrictHostKeyChecking=accept-new"
 SSH_NOKHOST="ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
@@ -105,7 +109,7 @@ echo "==> APPLY (wipe-and-replay) — router will reboot"
 $SSH "$ROUTER" "/system reset-configuration no-defaults=yes skip-backup=yes keep-users=yes run-after-reset=$CONFIG" || true
 
 # === 4. wait for router ======================================================
-echo "==> polling for router (host key will rotate)"
+echo "==> polling for router"
 attempt=0
 while true; do
     # No trailing `quit` -- RouterOS treats it as a session interrupt
@@ -125,14 +129,12 @@ while true; do
 done
 echo "    router back after $attempt polls"
 
-# Best-effort known_hosts refresh so interactive SSH outside apply.sh
-# doesn't trip over a stale host key. Failures (e.g., read-only ~/.ssh
-# in a sandboxed environment) are tolerated — the apply itself doesn't
-# depend on known_hosts being clean.
-ssh-keygen -R "$ROUTER_HOST" >/dev/null 2>&1 || true
-# -q suppresses ssh-keyscan's banner-line header so it doesn't
-# accumulate in known_hosts on every apply.
-ssh-keyscan -q -T 5 -t ed25519 "$ROUTER_HOST" 2>/dev/null >> ~/.ssh/known_hosts || true
+# With `/ip ssh regenerate-host-key` removed from config.rsc, the
+# router's SSH host key now persists across routine `/system
+# reset-configuration` applies. known_hosts stays valid; no refresh
+# needed. Cold-bootstrap (button reset / netinstall) does regenerate
+# the host key as part of factory state, and is documented as a
+# manual `ssh-keygen -R 192.168.88.1` step in README.md Recovery.
 
 # === 5. verify completion =====================================================
 # Poll for THIS apply's nonced "config.rsc: done" marker. The nonce

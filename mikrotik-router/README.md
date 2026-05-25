@@ -119,18 +119,27 @@ the button-reset + WebFig-set-password dance.
 
 Hold the reset button while powering on, release when the USR LED starts
 flashing (~5s). The router boots back to factory state with an empty
-user-db (no SSH keys), so unlike a routine `reset-configuration` apply,
-this path **does** need the `.pub` re-staged.
+user-db (no SSH keys) AND a freshly-generated SSH host key (factory
+state regenerates it; unlike routine `/system reset-configuration`,
+which preserves the host key).
 
 **Important:** RouterOS 7.x ships with a unique per-device admin password
 printed on the label on the router itself. A button reset restores *that*
 password — **not** empty. To regain SSH access:
 
-1. Read the printed admin password off the router's label.
-2. Log in once via Webfig at `http://192.168.88.1` (or SSH with that
-   password) and reset the admin password to empty (or to whatever the
-   apply flow expects).
-3. Re-stage **both** `config.rsc` and `gkanapathy-mbpmx.pub`
+1. **Clear the stale host-key entry** on the client (`apply.sh` uses
+   `StrictHostKeyChecking=accept-new` which fails loudly on a key
+   mismatch). On the apply machine:
+
+   ```fish
+   ssh-keygen -R 192.168.88.1
+   ```
+
+2. Read the printed admin password off the router's label.
+3. Log in once via Webfig at `http://192.168.88.1` (or SSH with that
+   password — first connection TOFU's the new host key) and reset
+   the admin password to empty (or to whatever the apply flow expects).
+4. Re-stage **both** `config.rsc` and `gkanapathy-mbpmx.pub`
    (`scp config.rsc gkanapathy-mbpmx.pub admin@192.168.88.1:`) and
    apply. The script's import block runs because the user-db is empty;
    it logs `ssh key imported (cold bootstrap)` and consumes the `.pub`
@@ -142,30 +151,29 @@ password — **not** empty. To regain SSH access:
    pre-Sonic baseline (`*-post-key-refactor.rsc`) as a deeper fallback
    if HEAD itself is in a broken state.
 
-4. **(Stage 4 prerequisite, not Stage 3.)** Cold-bootstrap also resets
-   `/system device-mode` to its factory default (`scheduler: no`),
-   which blocks `/system scheduler add`. Stage 3 as-shipped doesn't
-   use the scheduler (the original preferred-lifetime-override design
-   was abandoned when we found dynamic `/ipv6 nd prefix` entries
-   reject `set` on 7.21.4), so a cold-bootstrap recovery applies
-   `config.rsc` cleanly without this step. **Stage 4** (Netwatch
-   failover automation) WILL need scheduler; when Stage 4 lands, add
-   this step after the apply above:
+5. **`/system device-mode` dance.** Cold-bootstrap resets device-mode
+   to its factory default (`scheduler: no`), which blocks `/system
+   scheduler add` — and the shipped config uses a scheduler for the
+   `wan-reconciler` 10m polling tick. The apply will complete (the
+   scheduler `add` is wrapped in `:do/on-error` so a failure here
+   doesn't abort the whole import), but the event-driven reconciler
+   trigger via dhcp-client `script=` still works on its own; the
+   missing piece is just the belt-and-suspenders 10m heal. To restore
+   it after the cold-bootstrap apply:
 
    ```fish
-   ssh admin@192.168.88.1 '/system routerboard reset-button set enabled=no'   # defensive: prevent toggle-leds tap from racing
+   ssh admin@192.168.88.1 '/system routerboard reset-button set enabled=no'   # defensive: prevent toggle-leds tap from racing the confirm
    ssh admin@192.168.88.1 '/system device-mode update scheduler=yes'
    # Router prints "press button to confirm in Nm Ys"; press the reset
    # button briefly within that window. Router reboots into permissive
    # mode. After it's back:
    ssh admin@192.168.88.1 '/system routerboard reset-button set enabled=yes'  # restore the hook
-   ssh admin@192.168.88.1 '/system reset-configuration no-defaults=yes skip-backup=yes keep-users=yes run-after-reset=config.rsc'   # re-apply
+   ./apply.sh   # re-apply so the scheduler add succeeds this time
    ```
 
 This means a button reset always requires physical access to the router
-plus a manual login step (plus the device-mode dance once Stage 4 lands).
-Prefer the IPv6 link-local recovery above when possible — it skips all
-of this.
+plus a manual login + a `ssh-keygen -R` step. Prefer the IPv6 link-local
+recovery above when possible — it skips all of this.
 
 ### Last resort: netinstall — cold bootstrap
 
@@ -179,7 +187,8 @@ helped:
 
 The pre-apply backup pulled in step 1 of Apply is the immediate safety
 net. Netinstall wipes both the OS and `/file/`, so the cold-bootstrap
-re-stage of `gkanapathy-mbpmx.pub` applies here too.
+re-stage of `gkanapathy-mbpmx.pub` and the `ssh-keygen -R 192.168.88.1`
+client-side cleanup from the button-reset section apply here too.
 
 ## Common pitfalls
 

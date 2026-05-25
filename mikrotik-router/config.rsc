@@ -196,18 +196,25 @@ add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1 ra-interval=15s-
 #   post-quantum KEX (RouterOS 7.21.4 has none), so OpenSSH 9.x will still
 #   warn about "store now, decrypt later"; that warning won't go away until
 #   MikroTik ships PQ-KEX support upstream.
-# - host-key-type=ed25519: smaller, faster, modern key.
+# - host-key-type=ed25519: smaller, faster, modern key. RouterOS rebuilds
+#   the host key automatically if this property changes; no explicit
+#   regenerate-host-key needed.
 # - host-key-size=4096: dormant for ed25519, only matters if anyone ever
 #   flips host-key-type back to rsa; cheap to set.
 # - forwarding-enabled=no: refuse SSH-tunnel/jump-host use of the router.
-# - regenerate-host-key: explicit rotation. Apply flow already does
-#   `ssh-keygen -R`, so the new fingerprint is no surprise.
 # Note: there is no `max-auth-tries` property on /ip ssh in 7.21.4 (that's
 # OpenSSH's MaxAuthTries). Brute-force resistance lives elsewhere — we
 # rely on key-only auth + service `address=` scoping below.
+#
+# We deliberately do NOT call `/ip ssh regenerate-host-key` on every
+# apply. /system reset-configuration preserves the on-disk host key, so
+# removing the regen means routine applies don't roll the host key and
+# don't churn known_hosts. Host-key changes now signal real events
+# (cold bootstrap, manual rotation, or RouterOS upgrade) -- matching
+# the loud-on-mismatch semantic that apply.sh's accept-new policy
+# relies on.
 /ip ssh
 set password-authentication=yes strong-crypto=yes host-key-type=ed25519 host-key-size=4096 forwarding-enabled=no
-/ip ssh regenerate-host-key
 
 # --- service surface ---
 # Lock down management services. Bind interactive surfaces to mgmt+plumtree
