@@ -1011,57 +1011,23 @@ set allowed-interface-list=LAN
 set enabled=no
 
 # --- Netwatch WAN-reachability probes ---
-# Per-WAN reachability probes targeting Cloudflare's v6 anycast
-# 2606:4700:4700::1111. src-address is the router's own host GUA in
-# the named pool (eui-64=yes on the vlan88 from-pool entry above);
-# /routing rule src=<pool>::/56 -> table=<pool> steers the probe
-# through the matching WAN.
+# Per-WAN probe of Cloudflare v6 anycast 2606:4700:4700::1111 from
+# the router's own host GUA in the named pool. src-PBR (via the
+# /routing rule chain) steers the probe through the matching WAN;
+# on a WAN-down event the reply path can't reach us, so the probe
+# times out and the down-script fires. See LESSONS.md (Bug A) for
+# why the foreign-source v6 form is what makes this detection work,
+# vs. the v4-LAN-src design it replaces.
 #
-# Why a v6 probe with a *foreign-pool* src works as a failure signal
-# (it doesn't seem obvious that it would):
+# packet-count=3 + packet-interval=500ms gives single-probe flap
+# suppression (all 3 echoes must time out for the probe to fail);
+# RouterOS 7.21.4 has no loss-threshold for multi-probe gating.
+# startup-delay=60s holds probes until dhcp-clients have bound on
+# apply-day.
 #
-#   - When the named WAN is up:
-#       probe src=<this-pool> -> table=<this-pool> d=1 -> out this-WAN.
-#       This-WAN's BCP38 sees the src is its own customer prefix,
-#       passes. Reply via this-WAN. Probe up.
-#   - When the named WAN is down (interface admin-down or
-#     check-gateway=ping detected the upstream gw dead):
-#       d=1 inactive -> d=2 (other-WAN) active in this-pool's table.
-#       Probe egresses via the *other* WAN with src=<this-pool>.
-#       Other-WAN behavior on foreign-source v6 varies (MB accepts and
-#       forwards, Sonic enforces BCP38 and drops). Either way the
-#       reply path requires this-pool's /56 to be announced and
-#       deliverable by this-WAN -- which the dead this-WAN can't do.
-#       So the reply never reaches us. Probe times out. Down-script
-#       fires.
-#
-# This shape parallels actual client traffic exactly: a client whose
-# preferred GUA is in this-pool sends src=<this-pool> via the same
-# /routing rule, hits the same d=1->d=2 fallthrough on WAN failure,
-# and gets the same reply-path-broken outcome. Probe state therefore
-# tracks "would a client on this pool be able to make a round-trip
-# right now?" -- the exact condition the up/down scripts need to fire on.
-#
-# Replaces an earlier v4 1.1.1.1 probe design which couldn't see a
-# Sonic-interface failure at all -- v4 probes from a LAN src get
-# NAT-masqueraded out the surviving WAN and reach 1.1.1.1 fine,
-# masking the failure (see LESSONS.md, Bug A).
-#
-# packet-count=3 + packet-interval=500ms suppresses single-packet
-# noise: a probe is failed only if all 3 ICMP echoes time out within
-# ~2s. RouterOS 7.21.4 doesn't have loss-threshold (the N-consecutive
-# -probe-failures knob), so a single failed probe immediately fires
-# the down-script. False-fail risk is mitigated by Cloudflare's
-# stability + wan-reconciler's ndPreferredReconcile re-asserting
-# correct preferred-lifetime on the 10m tick.
-#
-# startup-delay=60s prevents premature firing while dhcp-clients are
-# still acquiring leases on apply-day.
-#
-# src-address literals are bootstrap defaults; wan-reconciler updates
-# them in-place via the netwatchSrcReconcile pass on /56 rotation.
-# Host part 6f4:1cff:fe51:bad8 is EUI-64 from the pinned bridge MAC
-# 04:F4:1C:51:BA:D8 (insert FF:FE in middle, flip U/L bit).
+# src-address literals are bootstrap defaults; netwatchSrcReconcile
+# heals them on /56 rotation. Host part 6f4:1cff:fe51:bad8 is
+# EUI-64 from the pinned bridge MAC 04:F4:1C:51:BA:D8.
 /tool netwatch
 add comment=sonic-probe type=icmp host=2606:4700:4700::1111 src-address=2001:5a8:6a5:4600:6f4:1cff:fe51:bad8 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=sonic-up down-script=sonic-down
 add comment=mb-probe    type=icmp host=2606:4700:4700::1111 src-address=2607:f598:d488:6100:6f4:1cff:fe51:bad8 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=mb-up    down-script=mb-down
