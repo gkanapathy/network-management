@@ -979,8 +979,11 @@ add address=3ffe::/16         list=bad_ipv6 comment="6bone"
 add action=accept chain=input comment="accept established,related,untracked" connection-state=established,related,untracked
 add action=drop   chain=input comment="drop invalid" connection-state=invalid
 add action=accept chain=input comment="accept ICMPv6 from LAN" protocol=icmpv6 in-interface-list=LAN
-add action=accept chain=input comment="accept UDP traceroute" dst-port=33434-33534 protocol=udp
-add action=accept chain=input comment="accept DHCPv6 PD" dst-port=546 protocol=udp src-address=fe80::/10
+add action=accept chain=input comment="accept UDP traceroute from LAN" dst-port=33434-33534 protocol=udp in-interface-list=LAN
+# DHCPv6 client replies legitimately arrive only on WAN interfaces from
+# the upstream router's link-local. Scoping to WAN prevents a LAN host
+# from crafting DHCPv6-shaped traffic aimed at the router's client.
+add action=accept chain=input comment="accept DHCPv6 PD" dst-port=546 protocol=udp src-address=fe80::/10 in-interface-list=WAN
 add action=drop   chain=input comment="drop everything not from LAN" in-interface-list=!LAN
 
 # FastTrack-vs-PBR: see the v4 fasttrack note above. Same verification
