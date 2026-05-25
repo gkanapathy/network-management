@@ -2,7 +2,16 @@
     "permissions": {
       "allow": [
         "Bash(ping *)",
-        "Bash(ping6 *)"
+        "Bash(ping6 *)",
+        "Bash(dig *)",
+        "WebFetch(domain:help.mikrotik.com)",
+        "WebFetch(domain:download.mikrotik.com)",
+        "WebFetch(domain:mikrotik.com)",
+        "WebFetch(domain:downloads.openwrt.org)",
+        "WebFetch(domain:openwrt.org)",
+        "WebFetch(domain:github.com)",
+        "WebFetch(domain:hub.docker.com)",
+        "WebFetch(domain:community.tp-link.com)"
       ]
     }
   }
