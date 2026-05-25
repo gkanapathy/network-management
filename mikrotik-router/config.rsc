@@ -405,15 +405,23 @@ add name=wan-reconciler policy=read,write,test source={
             :return true
         }
         :local poolId [:pick $pools 0]
-        # Pool prefix as ip6 + /56 network. We hardcode the /56 mask
-        # length because both ISPs deliver /56 in this deployment;
-        # if a future WAN delivers a different size, this needs to
-        # parse the masklen from poolPrefix instead.
+        # Pool prefix as ip6 + mask derived from the pool's actual
+        # prefix length. Mask lookup covers the realistic DHCPv6-PD
+        # sizes from IPV6-PLAN.md's edge-cases table; if a future
+        # ISP delivers something outside that range, we log + skip
+        # rather than silently mis-firing the transient guard.
         :local poolPrefixStr [/ipv6 pool get $poolId prefix]
         :local poolPrefixSlash [:find $poolPrefixStr "/"]
         :local poolPrefixIp [:toip6 [:pick $poolPrefixStr 0 $poolPrefixSlash]]
-        :local mask56 [:toip6 "ffff:ffff:ffff:ff00::"]
-        :local pool56 ($poolPrefixIp & $mask56)
+        :local poolMaskLen [:tonum [:pick $poolPrefixStr ($poolPrefixSlash + 1) [:len $poolPrefixStr]]]
+        :local maskByLen {"48"="ffff:ffff:ffff::"; "52"="ffff:ffff:ffff:f000::"; "56"="ffff:ffff:ffff:ff00::"; "60"="ffff:ffff:ffff:fff0::"; "63"="ffff:ffff:ffff:fffe::"; "64"="ffff:ffff:ffff:ffff::"}
+        :local maskStr ($maskByLen->[:tostr $poolMaskLen])
+        :if ([:typeof $maskStr] = "nothing") do={
+            :log warning ("wan-reconciler: unsupported pool prefix length /" . $poolMaskLen . " for " . $poolName . " -- add to maskByLen lookup")
+            :return true
+        }
+        :local poolMask [:toip6 $maskStr]
+        :local poolNet ($poolPrefixIp & $poolMask)
         :local addrIds [/ipv6 address find interface=$vlanName from-pool=$poolName]
         :if ([:len $addrIds] = 0) do={
             :log warning ("wan-reconciler: no /ipv6 address " . $vlanName . " " . $poolName)
@@ -435,14 +443,14 @@ add name=wan-reconciler policy=read,write,test source={
         }
         # Transient apply-day / dhcp-rebind guard: while /ipv6 address
         # is being bound, RouterOS briefly returns garbage forms with
-        # the /56 ISP prefix not yet merged in -- "::/64" (placeholder),
+        # the ISP prefix not yet merged in -- "::/64" (placeholder),
         # "::host/64" (host bits only), or "0:0:0:N::/64" (sub-alloc
-        # index N but no /56 prefix yet). All have a /56 of "::/56"
-        # which doesn't match the pool's actual delegated /56. Skip
+        # index N but no ISP prefix yet). All of these mask to "::/N"
+        # which doesn't match the pool's actual delegated prefix. Skip
         # so we don't write garbage into /ipv6 nd prefix prefix= and
         # then have to wait 10m for the next tick to heal.
-        :local bound56 ($hostIp & $mask56)
-        :if ($bound56 != $pool56) do={
+        :local boundPoolNet ($hostIp & $poolMask)
+        :if ($boundPoolNet != $poolNet) do={
             :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " /ipv6 address bind in progress (" . $raw . " not in " . $poolPrefixStr . "), retry next tick")
             :return true
         }
@@ -450,8 +458,8 @@ add name=wan-reconciler policy=read,write,test source={
         # entries (probe-src-*) carry a host address in the host
         # portion which we deliberately discard; /ipv6 nd prefix
         # should advertise the /64, not a host address.
-        :local boundNet ($hostIp & [:toip6 "ffff:ffff:ffff:ffff::"])
-        :local boundPrefix ([:tostr $boundNet] . "/64")
+        :local bound64Net ($hostIp & [:toip6 "ffff:ffff:ffff:ffff::"])
+        :local boundPrefix ([:tostr $bound64Net] . "/64")
         :local cmt ("auto-nd-" . $vlanName . "-" . $poolName)
         :local ndExisting [/ipv6 nd prefix find comment=$cmt]
         :if ([:len $ndExisting] = 0) do={
@@ -563,8 +571,15 @@ add name=wan-reconciler policy=read,write,test source={
         :local poolPrefixStr [/ipv6 pool get [:pick $pools 0] prefix]
         :local poolPrefixSlash [:find $poolPrefixStr "/"]
         :local poolPrefixIp [:toip6 [:pick $poolPrefixStr 0 $poolPrefixSlash]]
-        :local mask56 [:toip6 "ffff:ffff:ffff:ff00::"]
-        :local pool56 ($poolPrefixIp & $mask56)
+        :local poolMaskLen [:tonum [:pick $poolPrefixStr ($poolPrefixSlash + 1) [:len $poolPrefixStr]]]
+        :local maskByLen {"48"="ffff:ffff:ffff::"; "52"="ffff:ffff:ffff:f000::"; "56"="ffff:ffff:ffff:ff00::"; "60"="ffff:ffff:ffff:fff0::"; "63"="ffff:ffff:ffff:fffe::"; "64"="ffff:ffff:ffff:ffff::"}
+        :local maskStr ($maskByLen->[:tostr $poolMaskLen])
+        :if ([:typeof $maskStr] = "nothing") do={
+            :log warning ("wan-reconciler: unsupported pool prefix length /" . $poolMaskLen . " for " . $poolName . " -- add to maskByLen lookup")
+            :return true
+        }
+        :local poolMask [:toip6 $maskStr]
+        :local poolNet ($poolPrefixIp & $poolMask)
         :local addrCmt ("probe-src-" . $poolName)
         :local addrExisting [/ipv6 address find comment=$addrCmt]
         :if ([:len $addrExisting] = 0) do={
@@ -579,17 +594,17 @@ add name=wan-reconciler policy=read,write,test source={
         }
         # Apply-day / dhcp-rebind transient guard: while /ipv6 address
         # is still binding, RouterOS may return forms like "::host/64"
-        # or "0:0:0:N:host/64" where the ISP /56 prefix hasn't been
-        # merged in yet. Don't overwrite the netwatch src-address with
-        # such a value -- if the bound /56 doesn't match the pool's
-        # /56, we're still in a transient state.
+        # or "0:0:0:N:host/64" where the ISP prefix hasn't been merged
+        # in yet. Don't overwrite the netwatch src-address with such a
+        # value -- if the bound prefix doesn't match the pool's, we're
+        # still in a transient state.
         :local addrIp [:toip6 $addr]
         :if ([:typeof $addrIp] != "ip6") do={
             :log warning ("wan-reconciler: " . $addrCmt . " :toip6 failed on " . $raw)
             :return true
         }
-        :local bound56 ($addrIp & $mask56)
-        :if ($bound56 != $pool56) do={
+        :local boundPoolNet ($addrIp & $poolMask)
+        :if ($boundPoolNet != $poolNet) do={
             :log warning ("wan-reconciler: " . $addrCmt . " /ipv6 address bind in progress (" . $raw . " not in " . $poolPrefixStr . "), retry next tick")
             :return true
         }
