@@ -314,6 +314,17 @@ add name=wan-reconciler policy=read,write,test source={
             :log warning ("wan-reconciler: pool " . $poolName . " not delegated yet")
             :return true
         }
+        # Symmetric to v4Reconcile's status check: pool existence alone
+        # isn't proof of a healthy bind (it might be a stale entry from
+        # a renewal cycle). Skip if dhcp-client itself isn't bound.
+        :local v6clients [/ipv6 dhcp-client find pool-name=$poolName]
+        :if ([:len $v6clients] > 0) do={
+            :local v6status [/ipv6 dhcp-client get [:pick $v6clients 0] status]
+            :if ($v6status != "bound") do={
+                :log warning ("wan-reconciler: v6 dhcp-client for " . $poolName . " status=" . $v6status)
+                :return true
+            }
+        }
         :local prefix [/ipv6 pool get [:pick $pools 0] prefix]
         # /routing rule v6 src/dst: declared statically in /routing rule
         # block; reconciler only sets in-place. Set-only is race-free

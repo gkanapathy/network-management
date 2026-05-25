@@ -93,8 +93,14 @@ Triggered three ways (hybrid):
 - **Polling** — `/system scheduler` at 10 min interval. Belt-and-
   suspenders against any drift the event-driven path misses (manual
   edits, missed events, bugs).
-- **Implicit apply-day bootstrap** — dhcp-client first-bind after
-  `config.rsc` import naturally fires the event-driven trigger.
+- **Apply-day bootstrap** — explicit `/system script run wan-reconciler`
+  at the end of `config.rsc`, after all reconciler-managed entries
+  (routing rules, routes, /ipv6 nd prefix, /tool netwatch) are declared
+  AND after dhcp-client `script=` hooks are wired up. The dhcp-client
+  `script=` is deliberately deferred (declared empty on `add`, set
+  later via `set`) so the apply-day initial bind doesn't fire the
+  reconciler against half-declared state and spam "missing" warnings.
+  The explicit run at end substitutes for that lost bootstrap trigger.
 
 The reconciler script is defined in `config.rsc` *before* `/ip
 dhcp-client` so the named script exists when each dhcp-client's
