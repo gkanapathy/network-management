@@ -49,11 +49,11 @@ set name=plumtree-rtr
 # --- IP-stack hardening ---
 # Defconf doesn't touch /ip settings; defaults are too lax. rp-filter
 # is `loose` (not strict) because per-VLAN PBR + main=Sonic creates
-# legitimate asymmetric routing (guest/iot/mgmt egress via mb while
-# main defaults to Sonic). Loose still catches src-not-reachable-via-
-# any-interface (anti-spoof / bogon role); it just doesn't require
-# src reachable via the SAME interface. See LESSONS.md for the
-# probe-based rationale.
+# legitimate asymmetric routing (guest/iot egress via mb while main
+# defaults to Sonic; plumtree/mgmt egress via Sonic which matches
+# main). Loose still catches src-not-reachable-via-any-interface
+# (anti-spoof / bogon role); it just doesn't require src reachable
+# via the SAME interface. See LESSONS.md for the probe-based rationale.
 /ip settings
 set rp-filter=loose tcp-syncookies=yes send-redirects=no
 
@@ -581,6 +581,33 @@ add name=wan-reconciler policy=read,write,test source={
             :log warning ("wan-reconciler: RESTORED preferred-lifetime " . $fallCmt . " " . $fallCur . " -> " . $fallTarget . " (probe " . $nwStatus . ")")
         }
     }
+    # --- v4 route-distance failover reconciler: keep each named
+    # WAN's d=1 /ip route entries demoted (distance=3) when its probe
+    # is down, restored (distance=1) when up. Without this, v4 relies
+    # solely on /ip route check-gateway=ping for failover, which only
+    # detects gateway death -- not end-to-end transit failure. The
+    # netwatch probe catches transit failures via foreign-source-v6;
+    # piping that signal into v4 closes the asymmetry. Backstops the
+    # up/down scripts' inline distance flips the same way
+    # ndPreferredReconcile backstops the v6 nd-prefix flips.
+    :local v4RouteFailoverReconcile do={
+        :local probeComment $1
+        :local wanName $2
+        :local nwExisting [/tool netwatch find comment=$probeComment]
+        :if ([:len $nwExisting] = 0) do={ :return true }
+        :local nwStatus [/tool netwatch get [:pick $nwExisting 0] status]
+        :local targetDist
+        :if ($nwStatus = "up") do={ :set targetDist 1 }
+        :if ($nwStatus = "down") do={ :set targetDist 3 }
+        :if ([:typeof $targetDist] = "nothing") do={ :return true }
+        :foreach r in=[/ip route find comment~("^auto-v4-route-.*-pri-" . $wanName . "\$")] do={
+            :local cur [:tonum [/ip route get $r distance]]
+            :if ($cur != $targetDist) do={
+                /ip route set $r distance=$targetDist
+                :log warning ("wan-reconciler: RESTORED v4 distance " . [/ip route get $r comment] . " " . $cur . " -> " . $targetDist . " (probe " . $nwStatus . ")")
+            }
+        }
+    }
     # --- netwatch src-address reconciler: keep each WAN-probe's
     # src-address in sync with the router's current host GUA in the
     # corresponding pool. The /ipv6 address entry (find by comment
@@ -675,6 +702,9 @@ add name=wan-reconciler policy=read,write,test source={
     $ndPreferredReconcile "vlan88" "sonic-pd" "mb-pd"    "sonic-probe"
     $ndPreferredReconcile "vlan20" "mb-pd"    "sonic-pd" "mb-probe"
     $ndPreferredReconcile "vlan30" "mb-pd"    "sonic-pd" "mb-probe"
+    # v4 route-distance reconcile -- args: probe-comment, wan-name
+    $v4RouteFailoverReconcile "sonic-probe" "sonic"
+    $v4RouteFailoverReconcile "mb-probe"    "mb"
 }
 
 # --- Per-WAN failover scripts (up/down events) ---
@@ -713,32 +743,42 @@ add name=wan-reconciler policy=read,write,test source={
 # reconciler will re-clamp valid to min(pool_lifetime, 30m) on its
 # next tick if the pool lease is still small.
 add name=sonic-down policy=read,write,test,reboot source={
-    :log info "sonic-down: deprecating sonic-pd on vlan10+vlan88, promoting mb-pd"
+    :log info "sonic-down: deprecating sonic-pd on vlan10+vlan88, promoting mb-pd; demoting v4 sonic routes"
     /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=0s
     /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=30m valid-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan88-sonic-pd] preferred-lifetime=0s
     /ipv6 nd prefix set [find comment=auto-nd-vlan88-mb-pd]    preferred-lifetime=30m valid-lifetime=30m
+    # v4 failover by netwatch signal (not just check-gateway). Demote
+    # the d=1 sonic routes so the d=2 mb fallback wins. Without this,
+    # v4 stays stuck on a transit-broken-but-gateway-alive Sonic --
+    # the split-failover case where v6 migrates but v4 doesn't.
+    /ip route set [find comment=auto-v4-route-main-pri-sonic]  distance=3
+    /ip route set [find comment=auto-v4-route-sonic-pri-sonic] distance=3
 }
 add name=sonic-up policy=read,write,test,reboot source={
-    :log info "sonic-up: restoring sonic-pd preferred on vlan10+vlan88, deprecating mb-pd"
+    :log info "sonic-up: restoring sonic-pd preferred on vlan10+vlan88, deprecating mb-pd; restoring v4 sonic routes"
     /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=30m valid-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=0s
     /ipv6 nd prefix set [find comment=auto-nd-vlan88-sonic-pd] preferred-lifetime=30m valid-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan88-mb-pd]    preferred-lifetime=0s
+    /ip route set [find comment=auto-v4-route-main-pri-sonic]  distance=1
+    /ip route set [find comment=auto-v4-route-sonic-pri-sonic] distance=1
 }
 add name=mb-down policy=read,write,test,reboot source={
-    :log info "mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd"
+    :log info "mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes"
     /ipv6 nd prefix set [find comment=auto-nd-vlan20-mb-pd]    preferred-lifetime=0s
     /ipv6 nd prefix set [find comment=auto-nd-vlan20-sonic-pd] preferred-lifetime=30m valid-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan30-mb-pd]    preferred-lifetime=0s
     /ipv6 nd prefix set [find comment=auto-nd-vlan30-sonic-pd] preferred-lifetime=30m valid-lifetime=30m
+    /ip route set [find comment=auto-v4-route-mb-pri-mb] distance=3
 }
 add name=mb-up policy=read,write,test,reboot source={
-    :log info "mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd"
+    :log info "mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes"
     /ipv6 nd prefix set [find comment=auto-nd-vlan20-mb-pd]    preferred-lifetime=30m valid-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan20-sonic-pd] preferred-lifetime=0s
     /ipv6 nd prefix set [find comment=auto-nd-vlan30-mb-pd]    preferred-lifetime=30m valid-lifetime=30m
     /ipv6 nd prefix set [find comment=auto-nd-vlan30-sonic-pd] preferred-lifetime=0s
+    /ip route set [find comment=auto-v4-route-mb-pri-mb] distance=1
 }
 
 # --- DHCP pools ---
@@ -1016,6 +1056,12 @@ add action=drop chain=forward in-interface=vlan20 out-interface-list=LAN comment
 add action=drop chain=forward in-interface=vlan30 out-interface=vlan88   comment="iot -> mgmt: blocked"
 add action=drop chain=forward in-interface=vlan30 out-interface=vlan10 connection-state=new comment="iot -> plumtree: new conns blocked (returns OK)"
 add action=drop chain=forward in-interface=vlan30 out-interface=vlan20   comment="iot -> guest: blocked"
+
+# Terminal default-drop for anything in forward chain that's not
+# LAN-originated. The "drop WAN-originated, non-DSTNATed" rule above
+# already covers the common case; this is defense-in-depth (and
+# parity with v6 forward, which ends the same way).
+add action=drop chain=forward comment="drop everything not from LAN" in-interface-list=!LAN
 
 # --- NAT (masquerade out the WAN) ---
 /ip firewall nat

@@ -10,8 +10,11 @@ and re-apply.
 - `config.rsc` — target configuration. The whole router's intent.
 - `apply.sh` — apply runner: parse-check, backup, wipe-and-replay,
   wait, verify completion. See [Apply](#apply).
-- `gkanapathy-mbpmx.pub` — admin SSH public key. Uploaded alongside
-  `config.rsc` and imported by the script.
+- `gkanapathy-mbpmx.pub` — admin SSH public key. Staged manually on
+  cold bootstrap (see Recovery) and imported by the script's
+  cold-bootstrap-only key-import block. Routine `apply.sh` does NOT
+  re-upload this; `keep-users=yes` on `/system reset-configuration`
+  preserves the imported key across routine applies.
 - `snapshots/` — single pre-Sonic baseline `.rsc` for deep
   cold-bootstrap fallback. Per-apply backups are taken locally
   but gitignored (`*.backup`).
@@ -119,9 +122,13 @@ the button-reset + WebFig-set-password dance.
 
 Hold the reset button while powering on, release when the USR LED starts
 flashing (~5s). The router boots back to factory state with an empty
-user-db (no SSH keys) AND a freshly-generated SSH host key (factory
-state regenerates it; unlike routine `/system reset-configuration`,
-which preserves the host key).
+user-db (no SSH keys) AND a freshly-generated SSH host key.
+
+(Routine `/system reset-configuration` ALSO regenerates the host
+key on each apply, but `apply.sh`'s polling step takes care of
+refreshing known_hosts automatically. Cold bootstrap differs because
+apply.sh isn't running yet to do that refresh — hence the manual
+`ssh-keygen -R` step below.)
 
 **Important:** RouterOS 7.x ships with a unique per-device admin password
 printed on the label on the router itself. A button reset restores *that*

@@ -68,16 +68,24 @@ code path created them. Probe results that say preferred-lifetime
 override "works" almost always tested the static path.
 
 **On 7.21.4 there is no way to mutate a dynamic prefix entry directly.**
-The mechanism for biasing RA on a from-pool interface is
-`advertise=yes/no` on the parent `/ipv6 address` entry itself (which
-IS settable). If you need a dynamic preferred-lifetime knob, the
-alternative is per-VLAN-per-pool static `/ipv6 nd prefix add` entries
-with computed /64 literals — at the cost of having to track prefix
-rotation manually for each entry.
+Two viable workarounds:
 
-Drove the Sonic Stage 3 design pivot from "advertise both pools +
-deprecate via preferred-lifetime" to "advertise only the primary
-pool" (single-GUA-per-VLAN).
+1. `advertise=yes/no` on the parent `/ipv6 address` entry (which IS
+   settable) — suppresses the dynamic prefix entirely and gives a
+   single-GUA-per-VLAN. Stage 3 v1 used this.
+2. Per-VLAN-per-pool static `/ipv6 nd prefix add` entries with
+   computed /64 literals — static entries DO accept `set`, so
+   preferred-lifetime can be flipped at runtime. Requires tracking
+   prefix rotation across /56 changes (a job for wan-reconciler).
+   Stage 3 v2 (shipped) uses this — the dual-GUA design with
+   preferred-lifetime bias.
+
+Stage 3 v1 was the first cut after we discovered the dynamic-`set`
+constraint. v2 came back to the original "dual-GUA with
+preferred-lifetime bias" idea once we realized static entries route
+around the constraint. The shipped design is dual-GUA, both
+pools bound on every VLAN with `advertise=no`, RA emission via
+explicit static `/ipv6 nd prefix` entries.
 
 ### `/system scheduler start-time=startup` doesn't fire on the current boot
 
@@ -434,8 +442,11 @@ sequence. Brief milestones:
   captured Sonic delivery shape (DHCP/IPoE, IA_NA + IA_PD /56, 6h
   lease). Stage 1 added Sonic as passive secondary. Stage 2 v5
   shipped v4 per-VLAN source-based PBR after v1-v4 mangle attempts
-  failed (see lesson above). Stage 3 shipped v6 single-GUA-per-VLAN
-  via `advertise=yes/no` (see lesson above).
+  failed (see lesson above). Stage 3 v1 shipped v6 single-GUA-per-
+  VLAN via `advertise=yes/no` (the static-prefix workaround for the
+  dynamic-`set` constraint); 2026-05-23 pivoted to Stage 3 v2:
+  dual-GUA with explicit static `/ipv6 nd prefix` entries carrying
+  preferred-lifetime bias.
 - **wan-reconciler shipped 2026-05-22** — initially `v6-reconciler`
   for `/routing rule` PD-prefix entries only; expanded same day to
   also reconcile `/ip route` + `/ipv6 route` gateway literals, and

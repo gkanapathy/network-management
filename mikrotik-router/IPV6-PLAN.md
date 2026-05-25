@@ -18,22 +18,27 @@ primary-WAN failure.
 
 ```
                  ┌───────────────────────────────────┐
-                 │ Netwatch (shared)                 │
-                 │  probe MB GW, probe Sonic GW      │
-                 │  fire scripts on up/down          │
+                 │ Netwatch (shared, v6 foreign-src) │
+                 │  probe Cloudflare v6 anycast via  │
+                 │  each WAN's /56 src — fire scripts│
+                 │  on up/down                       │
                  └───┬─────────────────────────┬─────┘
-                     │ flips route distance    │ flips /ipv6 address advertise=
+                     │ flips route distance    │ flips /ipv6 nd prefix
+                     │ on auto-v4-route-*-pri- │ preferred-lifetime on
+                     │ <wan> entries           │ auto-nd-<vlan>-<pool>
                      ▼                         ▼
-            ┌──────────────────┐      ┌────────────────────┐
-            │ v4: PBR + tables │      │ v6: per-VLAN       │
-            │  per-VLAN src →  │      │  single-GUA via RA │
-            │  table=mb|sonic  │      │  advertise=yes/no  │
-            └────────┬─────────┘      └──────────┬─────────┘
+            ┌──────────────────┐      ┌────────────────────────┐
+            │ v4: PBR + tables │      │ v6: per-VLAN dual-GUA  │
+            │  per-VLAN src →  │      │  static /ipv6 nd prefix│
+            │  table=mb|sonic  │      │  preferred-lifetime    │
+            │                  │      │  bias (30m / 0s)       │
+            └────────┬─────────┘      └──────────┬─────────────┘
                      │ router-side                │ client-side
-                     │ route flip (immediate)     │ next-RA-driven SLAAC
+                     │ route flip (immediate)     │ next-RA-driven
                      ▼                            ▼
                  v4 client                    v6 client
-                (1 addr, NAT)            (ULA + 1 GUA per VLAN)
+                (1 addr, NAT)            (ULA + 2 GUAs per VLAN,
+                                          RFC 6724 picks preferred)
 ```
 
 Note: shipped Stage 3 ended up at *static* `/ipv6 nd prefix` entries
@@ -59,9 +64,11 @@ specifics, SONIC-PLAN wins.
   prefix to your router; you sub-allocate `/64`s per VLAN.
 - **RFC 6724 source-address selection:** The host-side rule for which
   of its multiple addresses to use as the source of an outbound
-  connection. The original Phase C plan biased it via RA-advertised
-  `preferred-lifetime`; the as-shipped design sidesteps it by
-  advertising only one GUA per VLAN so clients have no choice to make.
+  connection. The as-shipped design biases it via the
+  `preferred-lifetime` field on per-pool `/ipv6 nd prefix` entries
+  (Rule 3: prefer non-deprecated). Clients hold two GUAs per VLAN
+  (one per pool); the deprecated one stays valid for established
+  flows but new flows source from the preferred one.
 - **PBR / mangle marks:** Policy-based routing in RouterOS, expressed
   as `/ip firewall mangle` (or `/ipv6 firewall mangle`) rules that mark
   packets/connections with a routing-mark; that mark steers them into a
