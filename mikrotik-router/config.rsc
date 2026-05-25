@@ -25,11 +25,17 @@
 #   3. Lockout-safety prereqs: bridge / VLAN / addresses / SSH / service
 #   4. vlan-filtering=yes  <-- LOCKOUT-SAFETY GATE: SSH is locked in past here
 #   5. Routing tables + script definitions (large blocks; risky parse)
-#   6. DHCP + per-pool addresses + routes (depend on scripts above)
-#   7. DNS + firewall
-#   8. Service surface
-#   9. Automation: scheduler + Netwatch
-#   10. Cosmetic: LEDs + reset-button binding (at the end so a failure
+#   6. DHCP servers + clients (clients added WITHOUT script= -- see step 10)
+#   7. /ipv6 address from-pool, /ipv6 nd prefix, /ip+/ipv6 route, /routing rule
+#      (reconciler-managed entries, declared with bootstrap literals)
+#   8. DNS + firewall + service-surface tightening
+#   9. Automation: scheduler tick + Netwatch probes
+#   10. Wire dhcp-client `script=` hooks + explicit wan-reconciler bootstrap
+#       (deferred to here so the apply-day dhcp-client bind doesn't fire the
+#       reconciler against half-declared state, which would spam "missing"
+#       warnings for not-yet-existing routing rules / routes / netwatch /
+#       /ipv6 nd prefix. By this point all dependencies exist.)
+#   11. Cosmetic: LEDs + reset-button binding (at the very end so a failure
 #       above doesn't leave LEDs in a confusing state)
 # Errors below the gate (step 4) don't lock us out: SSH-via-mgmt-VLAN
 # (and IPv6-LL backdoor) keeps working, so the fix-and-reapply loop
@@ -535,6 +541,17 @@ add name=wan-reconciler source={
         :if ([:typeof $slashPos] != "nothing") do={
             :set addr [:pick $raw 0 $slashPos]
         }
+        # Apply-day transient guard: while /ipv6 address is still
+        # binding the address may be "::/64" or "::host/64" (no prefix
+        # part yet). Don't overwrite the netwatch bootstrap with a
+        # garbage src-address -- the next reconciler call will see the
+        # real bound GUA and update normally.
+        :local addrIp [:toip6 $addr]
+        :local net ($addrIp & [:toip6 "ffff:ffff:ffff:ffff::"])
+        :if ($net = [:toip6 "::"]) do={
+            :log warning ("wan-reconciler: " . $addrCmt . " /ipv6 address bind in progress (" . $raw . "), retry next tick")
+            :return true
+        }
         :local nwExisting [/tool netwatch find comment=$probeComment]
         :if ([:len $nwExisting] = 0) do={
             :log warning ("wan-reconciler: netwatch " . $probeComment . " missing -- re-declare in config.rsc or re-apply")
@@ -659,11 +676,16 @@ add address=192.168.88.252 mac-address=24:2F:D0:02:07:5A server=mgmt-dhcp commen
 # wan-reconciler script updates those gateways in-place when the ISP
 # rotates next-hop IPs.
 # use-peer-dns=yes keeps both ISPs' resolvers in /ip dns dynamic-servers.
-# script= fires the wan-reconciler on lease bind/value-change (event-
-# driven trigger; complements the /system scheduler 10m tick).
+#
+# NB: script= is NOT set here. It gets wired up near the end of the
+# script (after all reconciler-managed entries -- routing rules,
+# routes, /ipv6 nd prefix, /tool netwatch -- have been declared). If
+# we set script= here, the dhcp-client `add` would bind immediately
+# during apply and fire wan-reconciler against half-declared state,
+# spamming "missing" warnings for every entry not yet created.
 /ip dhcp-client
-add interface=ether2       add-default-route=no use-peer-dns=yes script="/system script run wan-reconciler"
-add interface=sfp-sfpplus1 add-default-route=no use-peer-dns=yes script="/system script run wan-reconciler"
+add interface=ether2       add-default-route=no use-peer-dns=yes
+add interface=sfp-sfpplus1 add-default-route=no use-peer-dns=yes
 
 # --- WAN: DHCPv6-PD clients (Stage 2: add-default-route=no) ---
 # MB delegates prefix-only (probe 1, 2026-05-07); Sonic delegates
@@ -678,11 +700,12 @@ add interface=sfp-sfpplus1 add-default-route=no use-peer-dns=yes script="/system
 # (unlike /ip dhcp-client which defaults to yes), so the explicit `no`
 # here also serves as belt-and-suspenders against future schema drift.
 # use-peer-dns inherits the default `yes`, parallel to /ip dhcp-client.
-# script= fires the wan-reconciler when prefix/address is acquired or
-# expires -- catches PD rotation and CPE-MAC LL changes.
+#
+# script= deferred to the end of the script -- see /ip dhcp-client
+# above for the rationale.
 /ipv6 dhcp-client
-add interface=ether2       request=address,prefix pool-name=mb-pd    pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no script="/system script run wan-reconciler"
-add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no script="/system script run wan-reconciler"
+add interface=ether2       request=address,prefix pool-name=mb-pd    pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no
+add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no
 
 # --- IPv6 GUA per-VLAN from DHCPv6-PD pools (Phase B-MB + Phase C) ---
 # from-pool= on 7.21.4 is prefix-only-to-interface by default: the
@@ -1013,6 +1036,25 @@ set enabled=no
 /tool netwatch
 add comment=sonic-probe type=icmp host=2606:4700:4700::1111 src-address=2001:5a8:6a5:4600:6f4:1cff:fe51:bad8 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=sonic-up down-script=sonic-down
 add comment=mb-probe    type=icmp host=2606:4700:4700::1111 src-address=2607:f598:d488:6100:6f4:1cff:fe51:bad8 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=mb-up    down-script=mb-down
+
+# --- Wire up dhcp-client script= hooks; explicit apply-day bootstrap ---
+# Now that all reconciler-managed entries are declared (/routing rule,
+# /ip route, /ipv6 route, /ipv6 nd prefix, /tool netwatch), it's safe
+# for the dhcp-client script= hook to fire wan-reconciler. We defer
+# wiring it until here so the initial dhcp-client bind during apply
+# (which happens immediately after `add`, well before everything else
+# is declared) doesn't fire a half-baked reconciler run.
+#
+# /system script run below explicitly bootstraps the reconciler now
+# that script= is set and everything is in place -- substitutes for
+# the apply-day-bootstrap behavior we'd otherwise get from dhcp bind.
+/ip dhcp-client
+set [find interface=ether2]       script="/system script run wan-reconciler"
+set [find interface=sfp-sfpplus1] script="/system script run wan-reconciler"
+/ipv6 dhcp-client
+set [find interface=ether2]       script="/system script run wan-reconciler"
+set [find interface=sfp-sfpplus1] script="/system script run wan-reconciler"
+/system script run wan-reconciler
 
 # --- LEDs + reset-button-press toggle (cosmetic; placed at the end) ---
 # Default: turn off the front-panel LEDs after 1h of uptime. Lets us
