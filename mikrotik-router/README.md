@@ -17,8 +17,9 @@ and re-apply.
   but gitignored (`*.backup`).
 - `IPV6-PLAN.md` — v6 design reference. Phases A + B-MB applied;
   Phase C is folded into the Sonic Stage buildout.
-- `SONIC-PLAN.md` — staged Sonic WAN buildout. Stages 0–3 +
-  wan-reconciler applied 2026-05-22; Stage 4 pending.
+- `SONIC-PLAN.md` — staged Sonic WAN buildout. Stages 0–4 applied
+  2026-05-22..24 (Stage 4 = Netwatch + preferred-lifetime flip;
+  Bug A retrofit to v6 foreign-source probes landed 2026-05-24).
 - `LESSONS.md` — architectural lessons learned during the buildout
   (RouterOS 7.x gotchas, design dead-ends, generalizable patterns).
 
