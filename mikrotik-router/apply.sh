@@ -61,9 +61,20 @@ case "${1:-}" in
     *) echo "unknown argument: $1" >&2; echo "usage: $0 [--parse-only]" >&2; exit 2 ;;
 esac
 
+# Per-apply nonce: injected into the final "config.rsc: done" :log
+# message so step 5's marker check verifies THIS apply's marker
+# rather than risk false-passing on a prior successful apply's
+# marker still in /log. (RouterOS may preserve /log entries across
+# reset-configuration -- we've observed it -- so a bare "grep done"
+# isn't sufficient.)
+NONCE="$(date +%Y%m%d-%H%M%S)-$$"
+SCP_CONFIG="${TMPDIR:-/tmp}/config.rsc.apply.$$"
+trap 'rm -f "$SCP_CONFIG"' EXIT
+sed "s|\"config.rsc: done\"|\"config.rsc: done apply-$NONCE\"|" "$CONFIG" > "$SCP_CONFIG"
+
 # === 1. parse-check ===========================================================
-echo "==> scp $CONFIG to router"
-$SCP "$CONFIG" "$ROUTER:"
+echo "==> scp $CONFIG to router (apply-nonce $NONCE)"
+$SCP "$SCP_CONFIG" "$ROUTER:$CONFIG"
 
 echo "==> parse-check"
 if ! $SSH "$ROUTER" ":parse [/file get $CONFIG contents]; :put PARSEOK" | grep -q PARSEOK; then
@@ -124,14 +135,28 @@ ssh-keygen -R "$ROUTER_HOST" >/dev/null 2>&1 || true
 ssh-keyscan -q -T 5 -t ed25519 "$ROUTER_HOST" 2>/dev/null >> ~/.ssh/known_hosts || true
 
 # === 5. verify completion =====================================================
-# Give the log a moment to flush.
-sleep 3
-
-if ! $SSH_NOKHOST "$ROUTER" '/log print where message="config.rsc: done"' | grep -q done; then
-    echo "ERROR: 'config.rsc: done' marker MISSING — import aborted mid-script" >&2
-    echo "       inspect: ssh $ROUTER '/log print'" >&2
+# Poll for THIS apply's nonced "config.rsc: done" marker. The nonce
+# makes the check robust against (a) SSH coming up before import
+# is done (the race -- we poll until the marker appears or timeout)
+# and (b) /log preserving prior applies' "done" entries across reset
+# (the false-pass -- only matching the per-apply nonce avoids this).
+echo "==> polling for config.rsc: done apply-$NONCE marker"
+attempt=0
+marker_seen=0
+while [ $attempt -lt 60 ]; do
+    if $SSH_NOKHOST "$ROUTER" '/log print' 2>/dev/null | grep -qF "config.rsc: done apply-$NONCE"; then
+        marker_seen=1
+        break
+    fi
+    attempt=$((attempt + 1))
+    sleep 2
+done
+if [ "$marker_seen" -eq 0 ]; then
+    echo "ERROR: 'config.rsc: done apply-$NONCE' marker not observed within ~2 minutes — import likely aborted mid-script" >&2
+    echo "       last 10 config.rsc log entries:" >&2
+    $SSH_NOKHOST "$ROUTER" '/log print' 2>/dev/null | grep "config.rsc" | tail -10 >&2 || true
     exit 1
 fi
-echo "    config.rsc: done marker present"
+echo "    config.rsc: done marker present (apply-$NONCE, $attempt polls)"
 
 echo "==> apply complete"

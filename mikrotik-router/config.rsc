@@ -82,14 +82,21 @@ add admin-mac=04:F4:1C:51:BA:D8 auto-mac=no name=bridge
 # (rogue switch / malicious endpoint) gets the port disabled instantly. ether1
 # is the trunk to the AP and intentionally not bpdu-guarded — the AP could
 # legitimately speak STP.
+#
+# frame-types on access ports: admit-only-untagged-and-priority-tagged rejects
+# any VLAN-tagged frame at ingress, making the access-port intent self-
+# enforcing at the port level (independent of the bridge VLAN table). Defense
+# in depth against VLAN hopping. ether1 stays at the default (admit-all)
+# since it's the trunk and must accept both untagged VLAN 88 and tagged
+# 10/20/30.
 /interface bridge port
 add bridge=bridge interface=ether1 pvid=88 comment="trunk to root AP"
-add bridge=bridge interface=ether3 pvid=88 bpdu-guard=yes edge=yes
-add bridge=bridge interface=ether4 pvid=88 bpdu-guard=yes edge=yes
-add bridge=bridge interface=ether5 pvid=88 bpdu-guard=yes edge=yes
-add bridge=bridge interface=ether6 pvid=88 bpdu-guard=yes edge=yes
-add bridge=bridge interface=ether7 pvid=88 bpdu-guard=yes edge=yes
-add bridge=bridge interface=ether8 pvid=88 bpdu-guard=yes edge=yes
+add bridge=bridge interface=ether3 pvid=88 bpdu-guard=yes edge=yes frame-types=admit-only-untagged-and-priority-tagged
+add bridge=bridge interface=ether4 pvid=88 bpdu-guard=yes edge=yes frame-types=admit-only-untagged-and-priority-tagged
+add bridge=bridge interface=ether5 pvid=88 bpdu-guard=yes edge=yes frame-types=admit-only-untagged-and-priority-tagged
+add bridge=bridge interface=ether6 pvid=88 bpdu-guard=yes edge=yes frame-types=admit-only-untagged-and-priority-tagged
+add bridge=bridge interface=ether7 pvid=88 bpdu-guard=yes edge=yes frame-types=admit-only-untagged-and-priority-tagged
+add bridge=bridge interface=ether8 pvid=88 bpdu-guard=yes edge=yes frame-types=admit-only-untagged-and-priority-tagged
 
 # --- VLAN L3 sub-interfaces on the bridge ---
 # All L3 (including mgmt) lives on /interface vlan; nothing on bridge directly.
