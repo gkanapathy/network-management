@@ -424,6 +424,12 @@ duplicating it.
 `:global` would also work but pollutes router-wide state. Pass
 by argument.
 
+(Historical: `prefixLenToMask` itself was later removed — RouterOS
+7.22's native `addr in prefix` operator replaced the masking math
+the helper existed for, so nothing is threaded this way in the
+current `wan-reconciler`. The scoping trap above is still real for
+any future shared `do={}` helper.)
+
 ### RouterOS interactive SSH scoping
 
 When piping multiple commands via SSH stdin (heredoc, multi-line

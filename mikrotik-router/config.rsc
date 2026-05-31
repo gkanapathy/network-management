@@ -301,53 +301,6 @@ add name=wan-reconciler policy=read,write,test source={
     # clean ip6-prefix (no lifetime suffix to parse), dhcp-server-v6 is
     # ip6, /ip dhcp-client gateway is ip, /routing rule src/dst-address
     # is ip6-prefix. Equality is canonicalized; concat auto-coerces.
-    # --- shared helper: compute an ip6 mask from a prefix length ---
-    # Used by v6NdReconcile + netwatchSrcReconcile to mask a bound
-    # /ipv6 address against the pool's delegated /N prefix and detect
-    # half-bound transient states. Works for any length 0..128 by
-    # string-assembling `ffff` hextets + (if needed) one partial
-    # hextet derived from arithmetic on the top bits -- no per-length
-    # enumeration. The partial-hextet value is 0xffff with the bottom
-    # (16-rem) bits cleared, written as 4 hex digits read from a
-    # constant character string (RouterOS has no built-in int->hex).
-    #
-    # NB: this helper is passed explicitly into v6NdReconcile and
-    # netwatchSrcReconcile as the final argument. RouterOS `do={}`
-    # function values do NOT see sibling locals from their defining
-    # scope -- inside another helper's body, `$prefixLenToMask`
-    # resolves to nothing, the mask comes back empty, the transient
-    # guard's `boundPoolNet != poolNet` silently evaluates false
-    # (nothing-vs-nothing), and the reconciler writes `::/64` into
-    # /ipv6 nd prefix during apply-day binds. Caught on the first
-    # post-refactor apply (2026-05-25); fixed by passing the value.
-    :local prefixLenToMask do={
-        :local len $1
-        :if ($len <= 0)   do={ :return [:toip6 "::"] }
-        :if ($len >= 128) do={ :return [:toip6 "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"] }
-        :local full ($len / 16)
-        :local rem ($len - ($full * 16))
-        :local s ""
-        :local i 0
-        :while ($i < $full) do={
-            :if ($i > 0) do={ :set s ($s . ":") }
-            :set s ($s . "ffff")
-            :set i ($i + 1)
-        }
-        :if ($rem > 0) do={
-            :if ($full > 0) do={ :set s ($s . ":") }
-            :local v (65535 - (65535 >> $rem))
-            :local h "0123456789abcdef"
-            :local d3 (($v / 4096) % 16)
-            :local d2 (($v / 256) % 16)
-            :local d1 (($v / 16) % 16)
-            :local d0 ($v % 16)
-            :set s ($s . [:pick $h $d3 ($d3 + 1)] . [:pick $h $d2 ($d2 + 1)] . [:pick $h $d1 ($d1 + 1)] . [:pick $h $d0 ($d0 + 1)])
-        }
-        :local total $full
-        :if ($rem > 0) do={ :set total ($total + 1) }
-        :if ($total < 8) do={ :set s ($s . "::") }
-        :return [:toip6 $s]
-    }
     # --- v6 reconciler: per pool, update /routing rule + /ipv6 route ---
     :local v6Reconcile do={
         :local poolName $1
@@ -472,7 +425,6 @@ add name=wan-reconciler policy=read,write,test source={
     :local v6NdReconcile do={
         :local vlanName $1
         :local poolName $2
-        :local prefixLenToMask $3
         :local ltCap 30m
         # Pool-delegation check first: if the pool isn't populated,
         # /ipv6 address bound to it can't be trusted yet (RouterOS
@@ -486,15 +438,10 @@ add name=wan-reconciler policy=read,write,test source={
             :return true
         }
         :local poolId [:pick $pools 0]
-        # Pool prefix as ip6 + mask derived from the pool's actual
-        # prefix length via the shared prefixLenToMask helper (defined
-        # at the top of this source body). Works for any length 0..128.
+        # Pool's delegated prefix (ip6-prefix typed, e.g. 2607:..:6100::/56).
+        # Used directly with the native `in` operator below to test
+        # whether a bound address falls inside the delegation.
         :local poolPrefixStr [/ipv6 pool get $poolId prefix]
-        :local poolPrefixSlash [:find $poolPrefixStr "/"]
-        :local poolPrefixIp [:toip6 [:pick $poolPrefixStr 0 $poolPrefixSlash]]
-        :local poolMaskLen [:tonum [:pick $poolPrefixStr ($poolPrefixSlash + 1) [:len $poolPrefixStr]]]
-        :local poolMask [$prefixLenToMask $poolMaskLen]
-        :local poolNet ($poolPrefixIp & $poolMask)
         :local addrIds [/ipv6 address find interface=$vlanName from-pool=$poolName]
         :if ([:len $addrIds] = 0) do={
             :log warning ("wan-reconciler: no /ipv6 address " . $vlanName . " " . $poolName)
@@ -518,12 +465,11 @@ add name=wan-reconciler policy=read,write,test source={
         # is being bound, RouterOS briefly returns garbage forms with
         # the ISP prefix not yet merged in -- "::/64" (placeholder),
         # "::host/64" (host bits only), or "0:0:0:N::/64" (sub-alloc
-        # index N but no ISP prefix yet). All of these mask to "::/N"
-        # which doesn't match the pool's actual delegated prefix. Skip
-        # so we don't write garbage into /ipv6 nd prefix prefix= and
-        # then have to wait 10m for the next tick to heal.
-        :local boundPoolNet ($hostIp & $poolMask)
-        :if ($boundPoolNet != $poolNet) do={
+        # index N but no ISP prefix yet). None of these fall inside the
+        # pool's actual delegated prefix, so the native `in` test skips
+        # them -- otherwise we'd write garbage into /ipv6 nd prefix
+        # prefix= and wait 10m for the next tick to heal.
+        :if (!($hostIp in $poolPrefixStr)) do={
             :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " /ipv6 address bind in progress (" . $raw . " not in " . $poolPrefixStr . "), retry next tick")
             :return true
         }
@@ -531,7 +477,7 @@ add name=wan-reconciler policy=read,write,test source={
         # entries (probe-src-*) carry a host address in the host
         # portion which we deliberately discard; /ipv6 nd prefix
         # should advertise the /64, not a host address.
-        :local bound64Net ($hostIp & [:toip6 "ffff:ffff:ffff:ffff::"])
+        :local bound64Net ($hostIp & ffff:ffff:ffff:ffff::)
         :local boundPrefix ([:tostr $bound64Net] . "/64")
         :local cmt ("auto-nd-" . $vlanName . "-" . $poolName)
         :local ndExisting [/ipv6 nd prefix find comment=$cmt]
@@ -669,7 +615,6 @@ add name=wan-reconciler policy=read,write,test source={
     :local netwatchSrcReconcile do={
         :local probeComment $1
         :local poolName $2
-        :local prefixLenToMask $3
         # Pool-delegation check first (same shape as v6NdReconcile):
         # if the pool isn't populated, /ipv6 address bound to it may
         # have a half-bound transient value with no real /56 prefix.
@@ -679,11 +624,6 @@ add name=wan-reconciler policy=read,write,test source={
             :return true
         }
         :local poolPrefixStr [/ipv6 pool get [:pick $pools 0] prefix]
-        :local poolPrefixSlash [:find $poolPrefixStr "/"]
-        :local poolPrefixIp [:toip6 [:pick $poolPrefixStr 0 $poolPrefixSlash]]
-        :local poolMaskLen [:tonum [:pick $poolPrefixStr ($poolPrefixSlash + 1) [:len $poolPrefixStr]]]
-        :local poolMask [$prefixLenToMask $poolMaskLen]
-        :local poolNet ($poolPrefixIp & $poolMask)
         :local addrCmt ("probe-src-" . $poolName)
         :local addrExisting [/ipv6 address find comment=$addrCmt]
         :if ([:len $addrExisting] = 0) do={
@@ -707,8 +647,7 @@ add name=wan-reconciler policy=read,write,test source={
             :log warning ("wan-reconciler: " . $addrCmt . " :toip6 failed on " . $raw)
             :return true
         }
-        :local boundPoolNet ($addrIp & $poolMask)
-        :if ($boundPoolNet != $poolNet) do={
+        :if (!($addrIp in $poolPrefixStr)) do={
             :log warning ("wan-reconciler: " . $addrCmt . " /ipv6 address bind in progress (" . $raw . " not in " . $poolPrefixStr . "), retry next tick")
             :return true
         }
@@ -730,21 +669,19 @@ add name=wan-reconciler policy=read,write,test source={
     $v6Reconcile "sonic-pd" "sonic" "sonic"
     $v4Reconcile "ether2"       "mb"
     $v4Reconcile "sfp-sfpplus1" "sonic"
-    # $prefixLenToMask passed explicitly as 3rd arg -- see helper
-    # definition near the top of this script for why.
-    $v6NdReconcile "vlan88" "mb-pd"    $prefixLenToMask
-    $v6NdReconcile "vlan88" "sonic-pd" $prefixLenToMask
-    $v6NdReconcile "vlan10" "mb-pd"    $prefixLenToMask
-    $v6NdReconcile "vlan10" "sonic-pd" $prefixLenToMask
-    $v6NdReconcile "vlan20" "mb-pd"    $prefixLenToMask
-    $v6NdReconcile "vlan20" "sonic-pd" $prefixLenToMask
-    $v6NdReconcile "vlan30" "mb-pd"    $prefixLenToMask
-    $v6NdReconcile "vlan30" "sonic-pd" $prefixLenToMask
+    $v6NdReconcile "vlan88" "mb-pd"
+    $v6NdReconcile "vlan88" "sonic-pd"
+    $v6NdReconcile "vlan10" "mb-pd"
+    $v6NdReconcile "vlan10" "sonic-pd"
+    $v6NdReconcile "vlan20" "mb-pd"
+    $v6NdReconcile "vlan20" "sonic-pd"
+    $v6NdReconcile "vlan30" "mb-pd"
+    $v6NdReconcile "vlan30" "sonic-pd"
     # Update netwatch src-address BEFORE ndPreferredReconcile reads
     # probe status, so a /56 rotation doesn't leave the probe pointing
     # at a stale src for a full reconciler tick (10m) before catching up.
-    $netwatchSrcReconcile "sonic-probe" "sonic-pd" $prefixLenToMask
-    $netwatchSrcReconcile "mb-probe"    "mb-pd"    $prefixLenToMask
+    $netwatchSrcReconcile "sonic-probe" "sonic-pd"
+    $netwatchSrcReconcile "mb-probe"    "mb-pd"
     # nd preferred-lifetime reconcile -- args: vlan, preferred-pool, fallback-pool, probe-comment
     $ndPreferredReconcile "vlan10" "sonic-pd" "mb-pd"    "sonic-probe"
     $ndPreferredReconcile "vlan88" "sonic-pd" "mb-pd"    "sonic-probe"
