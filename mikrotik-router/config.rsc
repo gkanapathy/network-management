@@ -1189,7 +1189,11 @@ set [find interface=sfp-sfpplus1] script="/system script run wan-reconciler"
 # safety net. Recovery: `/system device-mode update scheduler=yes`
 # + front-button confirm, then re-apply (see README.md Recovery).
 :do {
-    /system scheduler add name=wan-reconciler-tick on-event="/system script run wan-reconciler" interval=10m
+    # policy: least-privilege. Default-on-add is the full 10-flag set;
+    # the scheduler only runs wan-reconciler (itself read,write,test),
+    # and an invoked script runs under caller ∩ script policy, so
+    # read,write,test is the minimal set that lets it do its job.
+    /system scheduler add name=wan-reconciler-tick on-event="/system script run wan-reconciler" interval=10m policy=read,write,test
 } on-error={
     :log warning "config.rsc: /system scheduler add failed (cold-bootstrap device-mode reset?). Event-driven reconciler still active; re-enable scheduler via /system device-mode + button-confirm to restore polling."
 }
