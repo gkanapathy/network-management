@@ -193,7 +193,7 @@ add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1 ra-interval=15s-
 #   RouterOS default is `yes-if-no-key`, which rejects passwords once a user
 #   has any registered key. Tighten back later.
 # - strong-crypto=yes: prefer modern ciphers/MACs/KEX. Doesn't add
-#   post-quantum KEX (RouterOS 7.21.4 has none), so OpenSSH 9.x will still
+#   post-quantum KEX (RouterOS 7.x has none, 7.23 included), so OpenSSH 9.x will still
 #   warn about "store now, decrypt later"; that warning won't go away until
 #   MikroTik ships PQ-KEX support upstream.
 # - host-key-type=ed25519: smaller, faster, modern key. Setting this to
@@ -203,7 +203,8 @@ add interface=vlan30 advertise-dns=yes dns=fd7f:aee1:6ce0:30::1 ra-interval=15s-
 # - host-key-size=4096: dormant for ed25519, only matters if anyone ever
 #   flips host-key-type back to rsa; cheap to set.
 # - forwarding-enabled=no: refuse SSH-tunnel/jump-host use of the router.
-# Note: there is no `max-auth-tries` property on /ip ssh in 7.21.4 (that's
+# Note: there is no `max-auth-tries` property on /ip ssh in RouterOS 7.x
+# (still absent on 7.23) (that's
 # OpenSSH's MaxAuthTries). Brute-force resistance lives elsewhere — we
 # rely on key-only auth + service `address=` scoping below.
 #
@@ -817,7 +818,7 @@ add interface=sfp-sfpplus1 add-default-route=no use-peer-dns=yes
 # ISP hint — ISPs delegate whatever length they delegate.
 # add-default-route=no: ::/0 entries installed manually in /ipv6 route
 # below, so each routing table gets the right primary/failover pair.
-# /ipv6 dhcp-client add-default-route defaults to `no` on 7.21.4
+# /ipv6 dhcp-client add-default-route defaults to `no` on RouterOS 7.x
 # (unlike /ip dhcp-client which defaults to yes), so the explicit `no`
 # here also serves as belt-and-suspenders against future schema drift.
 # use-peer-dns inherits the default `yes`, parallel to /ip dhcp-client.
@@ -829,15 +830,17 @@ add interface=ether2       request=address,prefix pool-name=mb-pd    pool-prefix
 add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix-length=64 accept-prefix-without-address=yes add-default-route=no
 
 # --- IPv6 GUA per-VLAN from DHCPv6-PD pools (Phase B-MB + Phase C) ---
-# from-pool= on 7.21.4 is prefix-only-to-interface by default: the
+# from-pool= on RouterOS 7.x is prefix-only-to-interface by default: the
 # pool's /64 binds to the VLAN as a network address (for routing); the
 # router gets no host GUA on the interface. Clients SLAAC their own
 # GUAs; router stays reachable via per-VLAN ULA ::1 (Phase A) and
 # link-local. /64 re-derives automatically on lease renewal.
 #
 # All entries advertise=no -- the dynamic /ipv6 nd prefix entries that
-# would otherwise be auto-derived can't be `set`-mutated on 7.21.4
-# (see LESSONS.md). Instead, RA emission is driven by EXPLICIT static
+# would otherwise be auto-derived can't be `set`-mutated on RouterOS
+# 7.x (observed on 7.21.4; see LESSONS.md -- NOT re-verified on 7.23,
+# and worth a deliberate re-check since a fix would unlock a simpler
+# design). Instead, RA emission is driven by EXPLICIT static
 # /ipv6 nd prefix entries (below) with per-VLAN-per-pool
 # preferred-lifetime bias, which IS settable and is the mechanism the
 # up/down failover scripts use.
@@ -1026,7 +1029,7 @@ add action=drop   chain=input comment="drop everything not from LAN" in-interfac
 # MikroTik docs say FastTrack routes via the main routing table only
 # and doesn't respect /routing rule. Verified empirically 2026-05-25:
 # iot (vlan30, PBR -> table=mb) Netflix streams correctly via MB even
-# under FastTrack on both v4 and v6. RouterOS 7.21.4's actual behavior
+# under FastTrack on both v4 and v6. RouterOS 7.x's actual behavior
 # is to use the conntrack's cached output interface (set when the
 # initial SYN went through /routing rule), not re-do main-table lookups
 # per packet. Safe to keep the broad fasttrack rule; revisit if a future
@@ -1134,8 +1137,10 @@ set enabled=no
 # vs. the v4-LAN-src design it replaces.
 #
 # packet-count=3 + packet-interval=500ms gives single-probe flap
-# suppression (all 3 echoes must time out for the probe to fail);
-# RouterOS 7.21.4 has no loss-threshold for multi-probe gating.
+# suppression. (RouterOS 7.x exposes an icmp loss-threshold --
+# thr-loss-percent and related thr-* properties -- that didn't exist
+# on 7.21.4 when this was written; they're left unset here. Tuning
+# gating via thr-* is a possible refinement, deliberately not taken.)
 # startup-delay=60s holds probes until dhcp-clients have bound on
 # apply-day.
 #
@@ -1212,15 +1217,15 @@ set all-leds-off=after-1h
 # The toggle persists until the next reset+replay, which restores
 # all-leds-off=after-1h.
 /system script
-:if ([:len [/system/script/find name=toggle-leds]] > 0) do={
-    /system/script/remove [find name=toggle-leds]
+:if ([:len [/system script find name=toggle-leds]] > 0) do={
+    /system script remove [find name=toggle-leds]
 }
 add name=toggle-leds policy=read,write source={
-    :local cur [/system/leds/settings/get all-leds-off]
+    :local cur [/system leds settings get all-leds-off]
     :if ($cur = "never") do={
-        /system/leds/settings/set all-leds-off=immediate
+        /system leds settings set all-leds-off=immediate
     } else={
-        /system/leds/settings/set all-leds-off=never
+        /system leds settings set all-leds-off=never
     }
 }
 /system routerboard reset-button
