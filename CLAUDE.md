@@ -99,15 +99,17 @@ router by hand — drift will get wiped on the next apply.
   whether WMM is on on each Omada SSID. Pin down whether the bloat is on
   the WAN egress, the AP queue, or the client driver before reaching for
   per-SSID rate limits or QoS toggles in the controller.
-- **OpenWrt'd Orbis: shelved as spares** (decided 2026-05-08). RBR50 +
-  RBS50 v1 are flashed to OpenWrt 25.12.3 and factory-reset
-  (`firstboot`) on the shelf. Not deployed — see
+- **Orbis on Voxel, shelved for rehoming** (reflashed 2026-05-31). RBR50 +
+  RBS50 v1 ran OpenWrt as spares, then were reflashed to Voxel custom
+  firmware (`9.2.5.2.44SF-HW`, blank state, paired kit) to prep for
+  eventual giveaway — Voxel = stock Orbi UX + modern TLS, the best thing
+  to hand a recipient. No concrete recipient yet; set aside until one
+  appears. Reflash to OpenWrt if a keep-as-spare need reappears.
+  Deploying them *here* was dropped 2026-05-08 — see
   [`netgear-wifi/README.md` § Decision: shelved](netgear-wifi/README.md#decision-shelved)
   for the reasoning (no real coverage gap; wireless-backhaul-only
   forces single-VLAN STA-mode bridging; EAP770 is Omada-Mesh-only;
-  Wi-Fi 5–era hardware below the existing EAP770s' ceiling). Revisit
-  only if a real gap appears or a 4-address-WDS test against the
-  EAP770 ever changes the design space.
+  Wi-Fi 5–era hardware below the existing EAP770s' ceiling).
 
 ## Memory
 

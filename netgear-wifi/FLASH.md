@@ -1,4 +1,4 @@
-# Flash runbook: Orbi RBR50 v1 / RBS50 v1 → OpenWrt
+# Flash runbook: Orbi RBR50 v1 / RBS50 v1 (nmrpflash: stock ↔ OpenWrt ↔ Voxel)
 
 The primary path is `nmrpflash` over a bench Ethernet link. No serial,
 no telnet on stock — Netgear's NMRP recovery protocol is always
@@ -207,3 +207,47 @@ If `nmrpflash` and the `debug.htm` fallback both refuse to flash a
 specific unit, stop. Serial console (TTL UART headers on the PCB) is
 the next step but it requires opening the case and warrants a fresh
 discussion.
+
+## 7. Flashing Voxel custom firmware (OpenWrt → Voxel)
+
+Voxel firmware is stock Netgear Orbi rebuilt with modern crypto — the
+right target for rehoming a unit (stock Orbi UX, but not EOL). The
+mechanics are **identical to §4**: `nmrpflash` the Voxel `.img` instead of
+the OpenWrt one (power off → start `nmrpflash` → power on).
+
+Source: <https://voxel-firmware.com> (RBK50 build). The download bundles
+`QuickStart.txt` / `README.1st` with Voxel's own notes — read them.
+
+### Last flash
+
+- 2026-05-31: Voxel **9.2.5.2.44SF-HW** (built 2026-04-16, kernel 3.14.77),
+  flashed to both RBR50 v1 and RBS50 v1 directly from OpenWrt.
+  - `RBR50-V9.2.5.2.44SF-HW.img`
+    sha256 `bc97b586ec401f105a809de55bca610c30f86b44c3bf28f837ee57745722aac0`
+  - `RBS50-V9.2.5.2.44SF-HW.img`
+    sha256 `5e57782bb1c2e4295e8d5ceeab6895457d3ddbf202bdcf8b1fd43a14b3855e70`
+
+### What we learned (2026-05-31)
+
+- **Direct from OpenWrt works — no stock intermediate.** Voxel's
+  QuickStart says "update to stock 2.5.2.4 first," but only *if coming
+  from stock* (its GUI enforces version ordering). `nmrpflash` writes via
+  U-boot NMRP and skips those checks, so OpenWrt → Voxel lands clean in one
+  shot. Both units verified `isBlankState=1` afterward.
+- **Board-ID safety, same as OpenWrt.** The `.img` carries a DNI header
+  (`device:RBR50` / `device:RBS50`); NMRP refuses a mismatched model, so a
+  swapped image won't flash. (v1-only — these aren't V2 SoCs.)
+- **Verify without a browser:** `curl http://<ip>/currentsetting.htm`
+  returns plaintext `Firmware=`, `Model=`, `DeviceMode=` (0 router /
+  3 satellite), `isBlankState=`. Definitive version check, no login.
+- **The satellite can't be verified standalone.** An unsynced RBS50 brings
+  up no reachable LAN IP and no DHCP — it just waits to be adopted. To
+  confirm it took the flash: boot the RBR50 (blank state still serves LAN
+  DHCP), cable **RBS50 LAN → RBR50 LAN** (wired backhaul, *not* the yellow
+  WAN port), power the satellite. It auto-syncs — ring LED lights during
+  sync, then goes **off** when synced (off = good, magenta = failed) — and
+  pulls a DHCP lease from the router (it took `192.168.1.2`). Then
+  `currentsetting.htm` at that IP confirms it.
+- **Reset button is disabled on Voxel** (by design — see §6 to get
+  button-reset back via stock). So the OpenWrt `firstboot` wipe path does
+  *not* apply to a Voxel unit.

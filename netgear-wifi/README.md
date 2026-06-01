@@ -1,32 +1,40 @@
-# Netgear Orbi → OpenWrt
+# Netgear Orbi (RBR50/RBS50 v1)
 
-Two pieces of Netgear hardware (RBR50 v1 router + RBS50 v1 satellite)
-flashed to OpenWrt and **shelved as spares**. They are not part of the
-live network — the Omada-managed EAP770 mesh on the rb5009 trunk is
-doing all the actual Wi-Fi.
+Two pieces of Netgear hardware (RBR50 v1 router + RBS50 v1 satellite),
+flashed to OpenWrt (2026-05-07) and then **reflashed to Voxel custom
+firmware (2026-05-31) and shelved for eventual rehoming**. They are not
+part of the live network — the Omada-managed EAP770 mesh on the rb5009
+trunk does all the actual Wi-Fi.
 
-This subproject covered getting OpenWrt on the boxes and confirming
-they boot. Integration as APs / extenders was explored but **not
-pursued** — see [Decision: shelved](#decision-shelved) below.
+Why Voxel now: these are headed to someone else eventually (no recipient
+yet), and Voxel is the best firmware to hand off — it keeps the stock
+Orbi UX (Netgear app, web UI, mesh as designed) so a non-technical
+recipient gets a normal Orbi, but with modern crypto/TLS that fixes the
+EOL-stock problem (see [Why Voxel](#why-voxel-and-not-openwrt-or-stock)).
+Deploying them *here* was explored and dropped — see
+[Decision: shelved](#decision-shelved).
 
 ## Status
 
-- RBR50 v1: **flashed 2026-05-07 → OpenWrt 25.12.3 → factory-reset
-  (`firstboot`) and shelved 2026-05-08**
-- RBS50 v1: **flashed 2026-05-07 → OpenWrt 25.12.3 → shelved 2026-05-08**
-  (factory-reset state TBC; may have been left with SSH key still
-  installed for next-time-pickup convenience)
+Both on **Voxel `9.2.5.2.44SF-HW`** (2026-05-31), in factory-setup state
+(`isBlankState=1`) — ready to hand off as-is to a recipient's own Orbi
+setup. Reflashed directly from OpenWrt via `nmrpflash`; no stock
+intermediate was needed (see [`FLASH.md`](FLASH.md) §7).
 
-After `firstboot`: no root password, no SSH authorized_keys, default
-LAN at `192.168.1.1`, all three radios probed (`phy0/1/2`, ath10k for
-QCA9984 + both IPQ4019 internal radios) but with every `wifi-iface`
-having `option disabled '1'` (so no SSIDs broadcasting, no wifi
-netdevs). Identical to the as-flashed state from `nmrpflash`.
+- RBR50 v1 (router): Voxel `9.2.5.2.44SF-HW`, `DeviceMode=0` (router),
+  blank state. LAN `192.168.1.1`, MAC `8c:3b:ad:ab:80:6f`.
+- RBS50 v1 (satellite): Voxel `9.2.5.2.44SF-HW`, `DeviceMode=3`
+  (satellite), blank state. Verified synced to the router over wired
+  backhaul (leased `192.168.1.2`), MAC `8c:3b:ad:ab:99:88`.
 
-To revive: ssh `root@192.168.1.1` from a bench LAN, `passwd`, then
-re-install the admin SSH pubkey (procedure in
-[`FLASH.md`](FLASH.md) section 4). Picks up exactly where 2026-05-07
-flash session ended.
+Prior state (historical): both ran OpenWrt 25.12.3 from 2026-05-07 to
+2026-05-31.
+
+To pick back up: browse to `http://192.168.1.1` (Voxel ships modern TLS,
+so current Chrome/Safari work fine) and run the Orbi setup wizard, or SSH
+once an admin password is set (Voxel's dropbear accepts root with the
+web-UI password). To go back to OpenWrt, just `nmrpflash` the OpenWrt
+factory image (see [`FLASH.md`](FLASH.md) §4).
 
 ## Decision: shelved
 
@@ -53,10 +61,12 @@ Explored on 2026-05-08; decided not to deploy. Factors:
   ceiling is well below what the existing EAP770s already deliver.
   Adding more SSIDs in the airspace also mildly hurts the queued
   Wi-Fi-bufferbloat investigation in `CLAUDE.md`'s "What's next."
-- **Rehoming with stock firmware isn't viable.** Stock RBR50 v1
-  firmware no longer talks to current Chrome/Safari (TLS/cert
-  handling Netgear has EOL'd); only Firefox still permits the
-  bypass. So "give them away as factory units" isn't a real gift.
+- **Rehoming on stock firmware isn't viable — Voxel fixes this.** Stock
+  RBR50 v1 firmware no longer talks to current Chrome/Safari (TLS/cert
+  handling Netgear has EOL'd); only Firefox still permits the bypass. So
+  "give them away as factory units" isn't a real gift. Voxel rebuilds the
+  same stock Orbi UX with modern crypto, which is why the rehoming plan
+  (2026-05-31) reflashed them to Voxel rather than stock.
 
 The flashing exercise wasn't wasted — see [`FLASH.md`](FLASH.md)
 which now documents `nmrpflash` + OpenWrt 25.x quirks (subtarget
@@ -72,8 +82,8 @@ EAP770 mesh fails and we want a quick replacement, or if the
 
 - [`README.md`](README.md) — this file (status, hardware inventory,
   post-flash facts).
-- [`FLASH.md`](FLASH.md) — runbook: `nmrpflash` steps + `debug.htm`
-  fallback.
+- [`FLASH.md`](FLASH.md) — runbook: `nmrpflash` steps (stock→OpenWrt,
+  OpenWrt→Voxel) + `debug.htm` fallback.
 
 ## Hardware inventory
 
@@ -86,10 +96,11 @@ V2 is a different SoC and would brick on the v1 image).
 | RBR50 router    | RBR50       | TBD    | `8c:3b:ad:ab:80:6f` | TBD                 | TBD                 | TBD                 | WAN MAC `8c:3b:ad:ab:80:70`. Radio MACs not captured before power-off — fill in next boot via `for p in /sys/class/ieee80211/phy*; do echo "$(basename $p): $(cat $p/macaddress)"; done`. Mapping is phy0 = QCA9984 5g-high, phy1 = 2.4g, phy2 = IPQ4019 5g-low. |
 | RBS50 satellite | RBS50       | TBD    | `8c:3b:ad:ab:99:88` | `8c:3b:ad:ab:99:88` | `8c:3b:ad:ab:99:8a` | `8c:3b:ad:ab:99:8b` | Has 4 LAN ports, no WAN port (satellite hardware). 2.4 GHz MAC matches LAN MAC, which is the IPQ4019's primary identity. |
 
-## Post-flash facts
+## Post-flash facts (OpenWrt era — historical)
 
-Filled in after each unit comes up on OpenWrt. Capture
-`cat /etc/openwrt_release; uname -a; ip a` and paste the relevant lines.
+Captured 2026-05-07 when both ran OpenWrt 25.12.3. Kept as a reference for
+a possible future OpenWrt reflash; current Voxel state is under
+[Status](#status) above.
 
 ### RBR50 router
 
@@ -107,39 +118,45 @@ Filled in after each unit comes up on OpenWrt. Capture
 - Subtarget: `ipq40xx/generic`
 - First-boot date: 2026-05-07
 
-## Why OpenWrt (and not stock)
+## Why Voxel (and not OpenWrt or stock)
 
-Stock Orbi firmware on the RBR50 v1 has been EOL'd by Netgear — no
-security updates, and the OEM web UI's TLS / cert handling is no
-longer accepted by current Chrome or Safari. Only Firefox still
-permits the bypass, and even that's a temporary reprieve. OpenWrt
-keeps these units patchable and accessible from any modern browser
-via LuCI, which is the bare minimum for "shelved spare we might want
-to pick up again."
+Three firmwares were in play; the right one depends on who's holding the
+box.
 
-Stock also doesn't expose the knobs we'd want for any future
-deployment — 802.1q VLAN trunking, bridged AP-only mode without a
-forced cloud account, per-radio control over SSIDs. OpenWrt does.
+- **Stock** is out: Netgear EOL'd RBR50 v1 stock — no security updates,
+  and its web-UI TLS/cert handling is rejected by current Chrome/Safari
+  (Firefox-only, a temporary reprieve). Not a real gift.
+- **OpenWrt** was right while *we* kept them as patchable spares — modern,
+  reachable via LuCI from any browser, exposes VLAN trunking / AP-only /
+  per-radio knobs. But it's an unfamiliar UX for a non-technical
+  recipient, and the deploy-here idea was dropped anyway.
+- **Voxel** wins for rehoming: it's stock Netgear Orbi rebuilt with modern
+  crypto (OpenSSL 3.5.x, current OpenSSH/OpenVPN), so the recipient gets a
+  normal Orbi — Netgear app, familiar web UI, mesh as designed — that
+  still works in today's browsers and keeps getting Voxel's security
+  updates. Best of both: stock UX, not-EOL guts.
 
-These are explicitly **not** Omada devices — different vendor, no
-chance of adoption into the OC200. They run standalone OpenWrt
-end-to-end.
+These are explicitly **not** Omada devices — different vendor, no chance
+of adoption into the OC200. They run standalone, end to end.
 
 ## Recovery
 
-`firstboot -y && reboot` on the unit. Wipes the JFFS2 overlay
-(passwords, SSH keys, wifi config, hostname) and reboots into the
-same as-flashed state we had right after `nmrpflash`. ~30s. **No
-reflash required.** This is the recommended "blow away changes"
-path.
+On **Voxel**, the hardware reset button is intentionally disabled (Voxel
+can't reset NVRAM without DNI source). To wipe a Voxel unit you flash
+stock first, then factory-reset on stock. For our purposes the units are
+already in blank state, so there's nothing to do.
 
-Rollback to **Netgear stock** firmware is technically possible
-(download from netgear.com, `nmrpflash` it back per
-[`FLASH.md`](FLASH.md) section 6), but isn't recommended for these
-units — stock is EOL and unusable in modern browsers. Only do this
-if specifically needed (e.g. a recipient who insists on stock-UX).
+Paths if you need to change firmware:
 
-If `nmrpflash` and the `debug.htm` fallback both fail on a unit,
-stop and escalate before attempting serial console — the TTL UART
-headers exist on the PCB but reaching them is a tear-open job and
-warrants a fresh discussion.
+- **Back to OpenWrt** (e.g. you decide to keep one as a spare instead):
+  `nmrpflash` the OpenWrt factory image per [`FLASH.md`](FLASH.md) §4.
+  That restores the OpenWrt `firstboot -y && reboot` wipe path.
+- **To Netgear stock** (a recipient who insists on stock UX, or to get
+  button-reset back): `nmrpflash` stock per [`FLASH.md`](FLASH.md) §6.
+  Not recommended on its own — stock is EOL/unusable in modern browsers;
+  Voxel is the better stock-like target.
+
+If `nmrpflash` and the `debug.htm` fallback both fail on a unit, stop and
+escalate before attempting serial console — the TTL UART headers exist on
+the PCB but reaching them is a tear-open job and warrants a fresh
+discussion.
