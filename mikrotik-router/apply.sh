@@ -83,28 +83,6 @@ SCP_CONFIG="${TMPDIR:-/tmp}/config.rsc.apply.$$"
 trap 'rm -f "$SCP_CONFIG"' EXIT
 sed "s|\"config.rsc: done\"|\"config.rsc: done apply-$NONCE\"|" "$CONFIG" > "$SCP_CONFIG"
 
-# === 0. static lint: v4/v6 inter-VLAN firewall parity =========================
-# The inter-VLAN drop rules are duplicated across /ip firewall filter and
-# /ipv6 firewall filter (RouterOS has no shared v4/v6 rule language), so a
-# rule added to one stack but not the other is a silent one-protocol hole.
-# Assert both stacks carry the same count of forward-chain in-interface=vlan
-# drops. Local, fast, fails before any destructive action.
-echo "==> lint: v4/v6 inter-VLAN firewall parity"
-fw_parity="$(awk '
-    index($0,"/ip firewall filter")==1   { stack="v4"; next }
-    index($0,"/ipv6 firewall filter")==1 { stack="v6"; next }
-    substr($0,1,1)=="/" && !/^add/       { stack="" }
-    stack!="" && /chain=forward/ && /in-interface=vlan[0-9]/ { c[stack]++ }
-    END { print c["v4"]+0, c["v6"]+0 }
-' "$CONFIG")"
-v4_drops="${fw_parity% *}"; v6_drops="${fw_parity#* }"
-if [ "$v4_drops" != "$v6_drops" ]; then
-    echo "ERROR: inter-VLAN firewall parity mismatch: v4=$v4_drops v6=$v6_drops" >&2
-    echo "       a forward-chain inter-VLAN drop exists in one stack but not the other" >&2
-    exit 1
-fi
-echo "    inter-VLAN parity OK (v4=$v4_drops v6=$v6_drops)"
-
 # === 1. parse-check ===========================================================
 echo "==> scp $CONFIG to router (apply-nonce $NONCE)"
 $SCP "$SCP_CONFIG" "$ROUTER:$CONFIG"

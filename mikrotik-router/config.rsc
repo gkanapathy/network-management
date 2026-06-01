@@ -1066,6 +1066,10 @@ add action=drop   chain=forward comment="drop invalid" connection-state=invalid
 add action=drop   chain=forward comment="drop WAN-originated, non-DSTNATed" connection-nat-state=!dstnat connection-state=new in-interface-list=WAN
 
 # inter-VLAN policy. Order doesn't matter among these (mutually exclusive matches).
+# MIRROR: these 4 drops must be replicated in the /ipv6 firewall filter forward
+# chain below -- RouterOS has no shared v4/v6 rule language, and there is no
+# runtime/apply check, so a rule in one stack but not the other is a silent
+# one-protocol hole.
 add action=drop chain=forward in-interface=vlan20 out-interface-list=LAN comment="guest -> LAN: blocked"
 add action=drop chain=forward in-interface=vlan30 out-interface=vlan88   comment="iot -> mgmt: blocked"
 add action=drop chain=forward in-interface=vlan30 out-interface=vlan10 connection-state=new comment="iot -> plumtree: new conns blocked (returns OK)"
@@ -1127,6 +1131,8 @@ add action=drop   chain=forward comment="rfc4890 hop-limit=1" hop-limit=equal:1 
 add action=drop chain=forward comment="drop WAN-originated new (v6 parity)" connection-state=new in-interface-list=WAN
 
 # Inter-VLAN policy parity with the IPv4 forward-chain drops above.
+# MIRROR: keep these 4 drops in lockstep with the /ip firewall filter block
+# above -- a rule in one stack but not the other is a silent one-protocol hole.
 # Placed BEFORE the broad ICMPv6 accept below so iot->plumtree ICMPv6 echo
 # (etc.) is dropped consistently with v4. Same-VLAN ND is link-local and
 # never traverses forward, so the ICMPv6 accept below still covers ND.
