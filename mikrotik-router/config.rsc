@@ -310,9 +310,6 @@ add name=sonic fib
 # via run-after-reset=config.rsc; a second file would add a staging step
 # and an uncaught-import-error failure mode.
 /system script
-:if ([:len [/system script find name=wan-reconciler]] > 0) do={
-    /system script remove [find name=wan-reconciler]
-}
 add name=wan-reconciler policy=read,write,test source={
     # Uses RouterOS native typed values throughout -- /ipv6 pool gives a
     # clean ip6-prefix (no lifetime suffix to parse), dhcp-server-v6 is
@@ -727,10 +724,6 @@ add name=wan-reconciler policy=read,write,test source={
 # /ftp/romon, which exceeds netwatch's envelope -- so they MUST be
 # trimmed). See LESSONS.md.
 /system script
-:if ([:len [/system script find name=sonic-down]] > 0) do={ /system script remove [find name=sonic-down] }
-:if ([:len [/system script find name=sonic-up]]   > 0) do={ /system script remove [find name=sonic-up]   }
-:if ([:len [/system script find name=mb-down]]    > 0) do={ /system script remove [find name=mb-down]    }
-:if ([:len [/system script find name=mb-up]]      > 0) do={ /system script remove [find name=mb-up]      }
 # Promote-to-30m sets pin valid-lifetime=30m alongside
 # preferred-lifetime=30m to keep RFC 4861's preferred <= valid
 # invariant if v6NdReconcile's pool-lifetime clamp had previously
@@ -1247,9 +1240,6 @@ set all-leds-off=after-1h
 # The toggle persists until the next reset+replay, which restores
 # all-leds-off=after-1h.
 /system script
-:if ([:len [/system script find name=toggle-leds]] > 0) do={
-    /system script remove [find name=toggle-leds]
-}
 add name=toggle-leds policy=read,write source={
     :local cur [/system leds settings get all-leds-off]
     :if ($cur = "never") do={
