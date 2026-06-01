@@ -67,7 +67,8 @@ A static `add prefix=... interface=... preferred-lifetime=0s` accepts
 code path created them. Probe results that say preferred-lifetime
 override "works" almost always tested the static path.
 
-**On 7.21.4 there is no way to mutate a dynamic prefix entry directly.**
+**There is no way to mutate a dynamic prefix entry directly (confirmed
+7.21.4 through 7.23, 2026-05-31).**
 Two viable workarounds:
 
 1. `advertise=yes/no` on the parent `/ipv6 address` entry (which IS

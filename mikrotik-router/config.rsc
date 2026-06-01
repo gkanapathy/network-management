@@ -26,8 +26,9 @@
 #   4. vlan-filtering=yes  <-- LOCKOUT-SAFETY GATE: SSH is locked in past here
 #   5. Routing tables + script definitions (large blocks; risky parse)
 #   6. DHCP servers + clients (clients added WITHOUT script= -- see step 9)
-#   7. /ipv6 address from-pool, /ipv6 nd prefix, /ip+/ipv6 route, /routing rule
-#      (reconciler-managed entries, declared with bootstrap literals)
+#   7. /ipv6 address from-pool, /ipv6 nd prefix, /ip route, /routing rule
+#      (v4+v6 in one block), /ipv6 route — reconciler-managed entries,
+#      declared with bootstrap literals
 #   8. DNS + firewall + service-surface tightening
 #   9. Netwatch probes + wire dhcp-client `script=` hooks + explicit
 #      wan-reconciler bootstrap + scheduler tick. Automation goes last
@@ -289,10 +290,21 @@ add name=sonic fib
 # to source the bound host GUA into netwatch src-address.
 # Don't reuse those comment strings elsewhere.
 #
+# These tags are load-bearing JOIN KEYS living in three forms that must
+# stay in lockstep: (a) the comment= literal on the declaration; (b) the
+# parts assembled from args here in the reconciler (e.g. "auto-nd-".$vlan
+# ."-".$pool); (c) the {vlan}-{pool} parts the failover scripts assemble.
+# A rename is NEVER a single grep-replace -- a typo'd/renamed tag matches
+# none of them, so the entry is silently skipped (logged "missing").
+# Update all three forms together.
+#
 # Defined here (after the lockout-safety gate, before /ip dhcp-client
 # below) so the named script exists when dhcp-client's `script=`
 # property gets set during import -- otherwise there's a race where
 # the dhcp-client could bind and call a script that doesn't exist yet.
+# Kept inline (not a separate .rsc) because apply.sh imports a single file
+# via run-after-reset=config.rsc; a second file would add a staging step
+# and an uncaught-import-error failure mode.
 /system script
 :if ([:len [/system script find name=wan-reconciler]] > 0) do={
     /system script remove [find name=wan-reconciler]
@@ -302,6 +314,35 @@ add name=wan-reconciler policy=read,write,test source={
     # clean ip6-prefix (no lifetime suffix to parse), dhcp-server-v6 is
     # ip6, /ip dhcp-client gateway is ip, /routing rule src/dst-address
     # is ip6-prefix. Equality is canonicalized; concat auto-coerces.
+    # --- shared parse-guard: strip /mask, parse to ip6, verify it falls
+    # inside the pool's delegated prefix. Returns the host ip6 on success,
+    # "" on any transient/parse failure (caller treats a non-ip6 return as
+    # "skip this tick"). One definition shared by v6NdReconcile +
+    # netwatchSrcReconcile so the transient-bind guard can't silently
+    # diverge between them. MUST be passed in as an argument -- a do={}
+    # value can't see sibling locals (LESSONS.md: the prefixLenToMask trap).
+    # The `in $poolPrefixStr` test IS the transient guard: while /ipv6
+    # address is binding, RouterOS returns forms ("::/64", "::host/64",
+    # "0:0:0:N::/64") whose bits aren't yet inside the real /56, so they
+    # are skipped rather than written out as garbage.
+    :local parseGuard do={
+        :local raw $1
+        :local poolPrefixStr $2
+        :local label $3
+        :local slashPos [:find $raw "/"]
+        :local bare $raw
+        :if ([:typeof $slashPos] != "nothing") do={ :set bare [:pick $raw 0 $slashPos] }
+        :local ip [:toip6 $bare]
+        :if ([:typeof $ip] != "ip6") do={
+            :log warning ("wan-reconciler: " . $label . " unparseable /ipv6 address: " . $raw)
+            :return ""
+        }
+        :if (!($ip in $poolPrefixStr)) do={
+            :log info ("wan-reconciler: " . $label . " /ipv6 address bind in progress (" . $raw . " not in " . $poolPrefixStr . "), retry next tick")
+            :return ""
+        }
+        :return $ip
+    }
     # --- v6 reconciler: per pool, update /routing rule + /ipv6 route ---
     :local v6Reconcile do={
         :local poolName $1
@@ -312,7 +353,7 @@ add name=wan-reconciler policy=read,write,test source={
         # the next reconciler call retry.
         :local pools [/ipv6 pool find name=$poolName]
         :if ([:len $pools] = 0) do={
-            :log warning ("wan-reconciler: pool " . $poolName . " not delegated yet")
+            :log info ("wan-reconciler: pool " . $poolName . " not delegated yet")
             :return true
         }
         # Symmetric to v4Reconcile's status check: pool existence alone
@@ -322,7 +363,7 @@ add name=wan-reconciler policy=read,write,test source={
         :if ([:len $v6clients] > 0) do={
             :local v6status [/ipv6 dhcp-client get [:pick $v6clients 0] status]
             :if ($v6status != "bound") do={
-                :log warning ("wan-reconciler: v6 dhcp-client for " . $poolName . " status=" . $v6status)
+                :log info ("wan-reconciler: v6 dhcp-client for " . $poolName . " status=" . $v6status)
                 :return true
             }
         }
@@ -395,7 +436,7 @@ add name=wan-reconciler policy=read,write,test source={
         :local cid [:pick $clients 0]
         :local status [/ip dhcp-client get $cid status]
         :if ($status != "bound") do={
-            :log warning ("wan-reconciler: v4 " . $ifName . " status=" . $status)
+            :log info ("wan-reconciler: v4 " . $ifName . " status=" . $status)
             :return true
         }
         :local gw [/ip dhcp-client get $cid gateway]
@@ -426,6 +467,7 @@ add name=wan-reconciler policy=read,write,test source={
     :local v6NdReconcile do={
         :local vlanName $1
         :local poolName $2
+        :local parseGuard $3
         :local ltCap 30m
         # Pool-delegation check first: if the pool isn't populated,
         # /ipv6 address bound to it can't be trusted yet (RouterOS
@@ -435,7 +477,7 @@ add name=wan-reconciler policy=read,write,test source={
         # races on /ipv6 pool/get later in the function.
         :local pools [/ipv6 pool find name=$poolName]
         :if ([:len $pools] = 0) do={
-            :log warning ("wan-reconciler: pool " . $poolName . " not delegated yet")
+            :log info ("wan-reconciler: pool " . $poolName . " not delegated yet")
             :return true
         }
         :local poolId [:pick $pools 0]
@@ -448,32 +490,11 @@ add name=wan-reconciler policy=read,write,test source={
             :log warning ("wan-reconciler: no /ipv6 address " . $vlanName . " " . $poolName)
             :return true
         }
-        :local addrId [:pick $addrIds 0]
-        # Read the bound /ipv6 address (returned as the string
-        # "<addr>/<masklen>"), strip the mask, parse to ip6.
-        :local raw [/ipv6 address get $addrId address]
-        :local slashPos [:find $raw "/"]
-        :if ([:typeof $slashPos] = "nothing") do={
-            :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " unparseable /ipv6 address: " . $raw)
-            :return true
-        }
-        :local hostIp [:toip6 [:pick $raw 0 $slashPos]]
-        :if ([:typeof $hostIp] != "ip6") do={
-            :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " :toip6 failed on " . $raw)
-            :return true
-        }
-        # Transient apply-day / dhcp-rebind guard: while /ipv6 address
-        # is being bound, RouterOS briefly returns garbage forms with
-        # the ISP prefix not yet merged in -- "::/64" (placeholder),
-        # "::host/64" (host bits only), or "0:0:0:N::/64" (sub-alloc
-        # index N but no ISP prefix yet). None of these fall inside the
-        # pool's actual delegated prefix, so the native `in` test skips
-        # them -- otherwise we'd write garbage into /ipv6 nd prefix
-        # prefix= and wait 10m for the next tick to heal.
-        :if (!($hostIp in $poolPrefixStr)) do={
-            :log warning ("wan-reconciler: " . $vlanName . "-" . $poolName . " /ipv6 address bind in progress (" . $raw . " not in " . $poolPrefixStr . "), retry next tick")
-            :return true
-        }
+        # Read the bound /ipv6 address ("<addr>/<masklen>") and run it
+        # through the shared parse-guard (strip mask, :toip6, in-pool).
+        :local raw [/ipv6 address get [:pick $addrIds 0] address]
+        :local hostIp [$parseGuard $raw $poolPrefixStr ($vlanName . "-" . $poolName)]
+        :if ([:typeof $hostIp] != "ip6") do={ :return true }
         # We compare and write the network /64 only -- the eui-64=yes
         # entries (probe-src-*) carry a host address in the host
         # portion which we deliberately discard; /ipv6 nd prefix
@@ -616,12 +637,13 @@ add name=wan-reconciler policy=read,write,test source={
     :local netwatchSrcReconcile do={
         :local probeComment $1
         :local poolName $2
+        :local parseGuard $3
         # Pool-delegation check first (same shape as v6NdReconcile):
         # if the pool isn't populated, /ipv6 address bound to it may
         # have a half-bound transient value with no real /56 prefix.
         :local pools [/ipv6 pool find name=$poolName]
         :if ([:len $pools] = 0) do={
-            :log warning ("wan-reconciler: pool " . $poolName . " not delegated yet")
+            :log info ("wan-reconciler: pool " . $poolName . " not delegated yet")
             :return true
         }
         :local poolPrefixStr [/ipv6 pool get [:pick $pools 0] prefix]
@@ -632,26 +654,8 @@ add name=wan-reconciler policy=read,write,test source={
             :return true
         }
         :local raw [/ipv6 address get [:pick $addrExisting 0] address]
-        :local slashPos [:find $raw "/"]
-        :local addr $raw
-        :if ([:typeof $slashPos] != "nothing") do={
-            :set addr [:pick $raw 0 $slashPos]
-        }
-        # Apply-day / dhcp-rebind transient guard: while /ipv6 address
-        # is still binding, RouterOS may return forms like "::host/64"
-        # or "0:0:0:N:host/64" where the ISP prefix hasn't been merged
-        # in yet. Don't overwrite the netwatch src-address with such a
-        # value -- if the bound prefix doesn't match the pool's, we're
-        # still in a transient state.
-        :local addrIp [:toip6 $addr]
-        :if ([:typeof $addrIp] != "ip6") do={
-            :log warning ("wan-reconciler: " . $addrCmt . " :toip6 failed on " . $raw)
-            :return true
-        }
-        :if (!($addrIp in $poolPrefixStr)) do={
-            :log warning ("wan-reconciler: " . $addrCmt . " /ipv6 address bind in progress (" . $raw . " not in " . $poolPrefixStr . "), retry next tick")
-            :return true
-        }
+        :local addrIp [$parseGuard $raw $poolPrefixStr $addrCmt]
+        :if ([:typeof $addrIp] != "ip6") do={ :return true }
         :local nwExisting [/tool netwatch find comment=$probeComment]
         :if ([:len $nwExisting] = 0) do={
             :log warning ("wan-reconciler: netwatch " . $probeComment . " missing -- re-declare in config.rsc or re-apply")
@@ -661,29 +665,33 @@ add name=wan-reconciler policy=read,write,test source={
         # netwatch src-address is typed ip6; compare via :tostr to avoid
         # canonicalization mismatches (e.g., literal vs zero-suppressed).
         :local curSrc [:tostr [/tool netwatch get $nwId src-address]]
-        :if ($curSrc != $addr) do={
-            /tool netwatch set $nwId src-address=$addr
-            :log info ("wan-reconciler: ROTATED netwatch " . $probeComment . " src-address: " . $curSrc . " -> " . $addr)
+        :if ($curSrc != [:tostr $addrIp]) do={
+            /tool netwatch set $nwId src-address=$addrIp
+            :log info ("wan-reconciler: ROTATED netwatch " . $probeComment . " src-address: " . $curSrc . " -> " . [:tostr $addrIp])
         }
     }
     $v6Reconcile "mb-pd"    "mb"    "mb"
     $v6Reconcile "sonic-pd" "sonic" "sonic"
     $v4Reconcile "ether2"       "mb"
     $v4Reconcile "sfp-sfpplus1" "sonic"
-    $v6NdReconcile "vlan88" "mb-pd"
-    $v6NdReconcile "vlan88" "sonic-pd"
-    $v6NdReconcile "vlan10" "mb-pd"
-    $v6NdReconcile "vlan10" "sonic-pd"
-    $v6NdReconcile "vlan20" "mb-pd"
-    $v6NdReconcile "vlan20" "sonic-pd"
-    $v6NdReconcile "vlan30" "mb-pd"
-    $v6NdReconcile "vlan30" "sonic-pd"
+    # v6NdReconcile: 4 VLANs x 2 pools = 8 calls; keep in lockstep with the
+    # /ipv6 address from-pool= entries. $parseGuard is passed in because a
+    # do={} value can't see sibling locals (LESSONS.md).
+    $v6NdReconcile "vlan88" "mb-pd"    $parseGuard
+    $v6NdReconcile "vlan88" "sonic-pd" $parseGuard
+    $v6NdReconcile "vlan10" "mb-pd"    $parseGuard
+    $v6NdReconcile "vlan10" "sonic-pd" $parseGuard
+    $v6NdReconcile "vlan20" "mb-pd"    $parseGuard
+    $v6NdReconcile "vlan20" "sonic-pd" $parseGuard
+    $v6NdReconcile "vlan30" "mb-pd"    $parseGuard
+    $v6NdReconcile "vlan30" "sonic-pd" $parseGuard
     # Update netwatch src-address BEFORE ndPreferredReconcile reads
     # probe status, so a /56 rotation doesn't leave the probe pointing
     # at a stale src for a full reconciler tick (10m) before catching up.
-    $netwatchSrcReconcile "sonic-probe" "sonic-pd"
-    $netwatchSrcReconcile "mb-probe"    "mb-pd"
+    $netwatchSrcReconcile "sonic-probe" "sonic-pd" $parseGuard
+    $netwatchSrcReconcile "mb-probe"    "mb-pd"    $parseGuard
     # nd preferred-lifetime reconcile -- args: vlan, preferred-pool, fallback-pool, probe-comment
+    # (per-VLAN WAN-affinity policy -- see the /ipv6 nd prefix manifest below)
     $ndPreferredReconcile "vlan10" "sonic-pd" "mb-pd"    "sonic-probe"
     $ndPreferredReconcile "vlan88" "sonic-pd" "mb-pd"    "sonic-probe"
     $ndPreferredReconcile "vlan20" "mb-pd"    "sonic-pd" "mb-probe"
@@ -730,40 +738,44 @@ add name=wan-reconciler policy=read,write,test source={
 # next tick if the pool lease is still small.
 add name=sonic-down policy=read,write,test,reboot source={
     :log info "sonic-down: deprecating sonic-pd on vlan10+vlan88, promoting mb-pd; demoting v4 sonic routes"
-    /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=0s
-    /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=30m valid-lifetime=30m
-    /ipv6 nd prefix set [find comment=auto-nd-vlan88-sonic-pd] preferred-lifetime=0s
-    /ipv6 nd prefix set [find comment=auto-nd-vlan88-mb-pd]    preferred-lifetime=30m valid-lifetime=30m
-    # v4 failover by netwatch signal (not just check-gateway). Demote
-    # the d=1 sonic routes so the d=2 mb fallback wins. Without this,
-    # v4 stays stuck on a transit-broken-but-gateway-alive Sonic --
-    # the split-failover case where v6 migrates but v4 doesn't.
+    :foreach v in={"vlan10";"vlan88"} do={
+        /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-sonic-pd")] preferred-lifetime=0s
+        /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-mb-pd")] preferred-lifetime=30m valid-lifetime=30m
+    }
+    # v4 failover by netwatch signal (not just check-gateway). Demote the
+    # d=1 sonic routes so the d=2 mb fallback wins. Without this, v4 stays
+    # stuck on a transit-broken-but-gateway-alive Sonic -- the split-
+    # failover case where v6 migrates but v4 doesn't. INVARIANT: this list
+    # must cover exactly the routes matching v4RouteFailoverReconcile's
+    # regex ^auto-v4-route-.*-pri-sonic$ -- keep both in sync if a routing
+    # table is added.
     /ip route set [find comment=auto-v4-route-main-pri-sonic]  distance=3
     /ip route set [find comment=auto-v4-route-sonic-pri-sonic] distance=3
 }
 add name=sonic-up policy=read,write,test,reboot source={
     :log info "sonic-up: restoring sonic-pd preferred on vlan10+vlan88, deprecating mb-pd; restoring v4 sonic routes"
-    /ipv6 nd prefix set [find comment=auto-nd-vlan10-sonic-pd] preferred-lifetime=30m valid-lifetime=30m
-    /ipv6 nd prefix set [find comment=auto-nd-vlan10-mb-pd]    preferred-lifetime=0s
-    /ipv6 nd prefix set [find comment=auto-nd-vlan88-sonic-pd] preferred-lifetime=30m valid-lifetime=30m
-    /ipv6 nd prefix set [find comment=auto-nd-vlan88-mb-pd]    preferred-lifetime=0s
+    :foreach v in={"vlan10";"vlan88"} do={
+        /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-sonic-pd")] preferred-lifetime=30m valid-lifetime=30m
+        /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-mb-pd")] preferred-lifetime=0s
+    }
     /ip route set [find comment=auto-v4-route-main-pri-sonic]  distance=1
     /ip route set [find comment=auto-v4-route-sonic-pri-sonic] distance=1
 }
 add name=mb-down policy=read,write,test,reboot source={
     :log info "mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes"
-    /ipv6 nd prefix set [find comment=auto-nd-vlan20-mb-pd]    preferred-lifetime=0s
-    /ipv6 nd prefix set [find comment=auto-nd-vlan20-sonic-pd] preferred-lifetime=30m valid-lifetime=30m
-    /ipv6 nd prefix set [find comment=auto-nd-vlan30-mb-pd]    preferred-lifetime=0s
-    /ipv6 nd prefix set [find comment=auto-nd-vlan30-sonic-pd] preferred-lifetime=30m valid-lifetime=30m
+    :foreach v in={"vlan20";"vlan30"} do={
+        /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-mb-pd")] preferred-lifetime=0s
+        /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-sonic-pd")] preferred-lifetime=30m valid-lifetime=30m
+    }
+    # INVARIANT: mirror of v4RouteFailoverReconcile's ^auto-v4-route-.*-pri-mb$.
     /ip route set [find comment=auto-v4-route-mb-pri-mb] distance=3
 }
 add name=mb-up policy=read,write,test,reboot source={
     :log info "mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes"
-    /ipv6 nd prefix set [find comment=auto-nd-vlan20-mb-pd]    preferred-lifetime=30m valid-lifetime=30m
-    /ipv6 nd prefix set [find comment=auto-nd-vlan20-sonic-pd] preferred-lifetime=0s
-    /ipv6 nd prefix set [find comment=auto-nd-vlan30-mb-pd]    preferred-lifetime=30m valid-lifetime=30m
-    /ipv6 nd prefix set [find comment=auto-nd-vlan30-sonic-pd] preferred-lifetime=0s
+    :foreach v in={"vlan20";"vlan30"} do={
+        /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-mb-pd")] preferred-lifetime=30m valid-lifetime=30m
+        /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-sonic-pd")] preferred-lifetime=0s
+    }
     /ip route set [find comment=auto-v4-route-mb-pri-mb] distance=1
 }
 
@@ -838,9 +850,9 @@ add interface=sfp-sfpplus1 request=address,prefix pool-name=sonic-pd pool-prefix
 #
 # All entries advertise=no -- the dynamic /ipv6 nd prefix entries that
 # would otherwise be auto-derived can't be `set`-mutated on RouterOS
-# 7.x (observed on 7.21.4; see LESSONS.md -- NOT re-verified on 7.23,
-# and worth a deliberate re-check since a fix would unlock a simpler
-# design). Instead, RA emission is driven by EXPLICIT static
+# 7.x (confirmed through 7.23: `set` on a dynamic entry still returns
+# "failure: can not change dynamic prefix"; see LESSONS.md). Instead,
+# RA emission is driven by EXPLICIT static
 # /ipv6 nd prefix entries (below) with per-VLAN-per-pool
 # preferred-lifetime bias, which IS settable and is the mechanism the
 # up/down failover scripts use.
@@ -876,9 +888,17 @@ add from-pool=sonic-pd interface=vlan30 advertise=no
 #   preferred-lifetime=0s  -> deprecated (existing flows keep, new
 #                             flows pick the other GUA)
 #
-# Per-VLAN policy (steady state):
+# Per-VLAN WAN-affinity policy (steady state) -- THE canonical manifest.
+# All sites below implement it; keep them in lockstep when repointing a
+# VLAN or adding one:
 #   vlan10 (plumtree), vlan88 (mgmt) -> sonic-pd PREFERRED, mb-pd DEPRECATED
 #   vlan20 (guest), vlan30 (iot)     -> mb-pd PREFERRED, sonic-pd DEPRECATED
+# Sites that encode this policy (edit together):
+#   1. the preferred-lifetime 30m/0s pairs in this /ipv6 nd prefix block
+#   2. /routing rule -- v4 src->table and v6 src->table
+#   3. ndPreferredReconcile call args (wan-reconciler call-list)
+#   4. the sonic-/mb-{up,down} failover scripts
+#   5. (adding a VLAN only) the /ipv6 address from-pool= entries
 #
 # The Netwatch up/down scripts flip preferred-lifetime on these
 # entries on WAN-down events to migrate clients to the surviving GUA.
@@ -897,8 +917,10 @@ add from-pool=sonic-pd interface=vlan30 advertise=no
 # prefix= literals are bootstrap defaults matching the *expected*
 # RouterOS /64 sub-allocation from each /56 (sequential by /ipv6
 # address add order above: vlan88 gets the first /64, vlan10 the
-# second, etc). wan-reconciler reads the actually-bound /64 from
-# /ipv6 address and `set prefix=` if it differs.
+# second, etc). NB: this suffix is an ISP sub-allocation index, NOT
+# the ULA VLAN-id-as-hex scheme (:10::, :88::) used in Phase A above.
+# wan-reconciler reads the actually-bound /64 from /ipv6 address and
+# `set prefix=` if it differs.
 #
 # Empirical quirk (observed 2026-05-24): when /ipv6 address entries
 # are declared before the dhcp-client (i.e., from-pool waits on the
@@ -942,6 +964,8 @@ add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=sonic distance=1 
 add dst-address=0.0.0.0/0 gateway=162.217.74.129 routing-table=sonic distance=2                    comment="auto-v4-route-sonic-sec-mb"
 
 # --- routing rules for per-VLAN source-based PBR (Stage 2) ---
+# Per-VLAN src->table assignments here implement the WAN-affinity policy;
+# see the canonical manifest in the /ipv6 nd prefix block above.
 # Source-based PBR via /routing rule, NOT mangle mark-routing (see
 # LESSONS.md for the retrospective on why mangle is a trap on 7.x).
 # Order matters:
@@ -1152,16 +1176,14 @@ add comment=sonic-probe type=icmp host=2606:4700:4700::1111 src-address=2001:5a8
 add comment=mb-probe    type=icmp host=2606:4700:4700::1111 src-address=2607:f598:d488:6100:6f4:1cff:fe51:bad8 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=mb-up    down-script=mb-down
 
 # --- Wire up dhcp-client script= hooks; explicit apply-day bootstrap ---
-# Now that all reconciler-managed entries are declared (/routing rule,
-# /ip route, /ipv6 route, /ipv6 nd prefix, /tool netwatch), it's safe
-# for the dhcp-client script= hook to fire wan-reconciler. We defer
-# wiring it until here so the initial dhcp-client bind during apply
-# (which happens immediately after `add`, well before everything else
-# is declared) doesn't fire a half-baked reconciler run.
+# All reconciler-managed entries (/routing rule, /ip route, /ipv6 route,
+# /ipv6 nd prefix, /tool netwatch) are now declared, so it's safe to wire
+# script=. (Why deferred to here rather than set at the dhcp-client add:
+# see the /ip dhcp-client block above.)
 #
-# /system script run below explicitly bootstraps the reconciler now
-# that script= is set and everything is in place -- substitutes for
-# the apply-day-bootstrap behavior we'd otherwise get from dhcp bind.
+# /system script run below explicitly bootstraps the reconciler now that
+# script= is set -- substitutes for the apply-day-bootstrap we'd otherwise
+# get from the first dhcp bind.
 /ip dhcp-client
 set [find interface=ether2]       script="/system script run wan-reconciler"
 set [find interface=sfp-sfpplus1] script="/system script run wan-reconciler"
