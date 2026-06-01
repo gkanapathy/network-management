@@ -1,6 +1,10 @@
 # rb5009 — target configuration. Source of truth.
 # Apply via wipe + import; see README.md.
 #
+# NOT idempotent: apply ONLY via wipe-and-replay (apply.sh runs /system
+# reset-configuration then run-after-reset). Never /import this onto a
+# live config -- the target-state `add` blocks would duplicate.
+#
 # Topology:
 #   ether1        trunk to root AP — untagged 88 (mgmt) + tagged 10/20/30
 #   ether2        WAN (monkeybrains, DHCP client)
@@ -745,12 +749,10 @@ add name=sonic-down policy=read,write,test,reboot source={
     # v4 failover by netwatch signal (not just check-gateway). Demote the
     # d=1 sonic routes so the d=2 mb fallback wins. Without this, v4 stays
     # stuck on a transit-broken-but-gateway-alive Sonic -- the split-
-    # failover case where v6 migrates but v4 doesn't. INVARIANT: this list
-    # must cover exactly the routes matching v4RouteFailoverReconcile's
-    # regex ^auto-v4-route-.*-pri-sonic$ -- keep both in sync if a routing
-    # table is added.
-    /ip route set [find comment=auto-v4-route-main-pri-sonic]  distance=3
-    /ip route set [find comment=auto-v4-route-sonic-pri-sonic] distance=3
+    # failover case where v6 migrates but v4 doesn't. Uses the SAME regex
+    # as v4RouteFailoverReconcile, so a new routing table is demoted by both
+    # automatically -- no literal route list to keep in sync.
+    :foreach r in=[/ip route find comment~"^auto-v4-route-.*-pri-sonic\$"] do={ /ip route set $r distance=3 }
 }
 add name=sonic-up policy=read,write,test,reboot source={
     :log info "sonic-up: restoring sonic-pd preferred on vlan10+vlan88, deprecating mb-pd; restoring v4 sonic routes"
@@ -758,8 +760,7 @@ add name=sonic-up policy=read,write,test,reboot source={
         /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-sonic-pd")] preferred-lifetime=30m valid-lifetime=30m
         /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-mb-pd")] preferred-lifetime=0s
     }
-    /ip route set [find comment=auto-v4-route-main-pri-sonic]  distance=1
-    /ip route set [find comment=auto-v4-route-sonic-pri-sonic] distance=1
+    :foreach r in=[/ip route find comment~"^auto-v4-route-.*-pri-sonic\$"] do={ /ip route set $r distance=1 }
 }
 add name=mb-down policy=read,write,test,reboot source={
     :log info "mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes"
@@ -767,8 +768,8 @@ add name=mb-down policy=read,write,test,reboot source={
         /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-mb-pd")] preferred-lifetime=0s
         /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-sonic-pd")] preferred-lifetime=30m valid-lifetime=30m
     }
-    # INVARIANT: mirror of v4RouteFailoverReconcile's ^auto-v4-route-.*-pri-mb$.
-    /ip route set [find comment=auto-v4-route-mb-pri-mb] distance=3
+    # Same regex as v4RouteFailoverReconcile (auto-demotes any new pri-mb route).
+    :foreach r in=[/ip route find comment~"^auto-v4-route-.*-pri-mb\$"] do={ /ip route set $r distance=3 }
 }
 add name=mb-up policy=read,write,test,reboot source={
     :log info "mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes"
@@ -776,7 +777,7 @@ add name=mb-up policy=read,write,test,reboot source={
         /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-mb-pd")] preferred-lifetime=30m valid-lifetime=30m
         /ipv6 nd prefix set [find comment=("auto-nd-" . $v . "-sonic-pd")] preferred-lifetime=0s
     }
-    /ip route set [find comment=auto-v4-route-mb-pri-mb] distance=1
+    :foreach r in=[/ip route find comment~"^auto-v4-route-.*-pri-mb\$"] do={ /ip route set $r distance=1 }
 }
 
 # --- DHCP pools ---
@@ -914,7 +915,7 @@ add from-pool=sonic-pd interface=vlan30 advertise=no
 # fast cleanup on /56 rotation while still comfortably surviving any
 # normal router reboot or apply outage.
 #
-# prefix= literals are bootstrap defaults matching the *expected*
+# BOOTSTRAP — prefix= literals are seeds matching the *expected*
 # RouterOS /64 sub-allocation from each /56 (sequential by /ipv6
 # address add order above: vlan88 gets the first /64, vlan10 the
 # second, etc). NB: this suffix is an ISP sub-allocation index, NOT
@@ -954,7 +955,8 @@ add interface=vlan30 prefix=2001:5a8:6a5:4603::/64   preferred-lifetime=0s  vali
 # Each table has the local WAN at distance 1 (active) and the other at
 # distance 2 (failover). check-gateway=ping on the d=1 routes triggers
 # fall-through when the upstream stops responding.
-# Literal next-hops captured at Stage 0 probe D / Stage 1 bind.
+# BOOTSTRAP — gateway literals are seeds captured at Stage 0/1 bind;
+# wan-reconciler heals them from the live dhcp-client gateway.
 /ip route
 add dst-address=0.0.0.0/0 gateway=23.93.120.1    routing-table=main  distance=1 check-gateway=ping comment="auto-v4-route-main-pri-sonic"
 add dst-address=0.0.0.0/0 gateway=162.217.74.129 routing-table=main  distance=2                    comment="auto-v4-route-main-sec-mb"
@@ -986,7 +988,7 @@ add src-address=192.168.88.0/24 action=lookup table=sonic comment="mgmt -> sonic
 # --- Stage 3: v6 source-based PBR per pool ---
 # Same shape as v4 above (dst-LAN priority + per-pool src rules). The
 # entries referencing DHCPv6-PD-delegated /56 prefixes are declared
-# here with bootstrap literals (current ISP /56s) and tagged with
+# here as BOOTSTRAP seeds (current ISP /56s, healed by wan-reconciler) and tagged with
 # comment="auto-v6-{src,dst}-<pool>"; the wan-reconciler script (near
 # the top of this file) finds them by comment and updates the
 # src/dst-address in place when the ISP rotates the delegation.
@@ -1015,7 +1017,7 @@ add src-address=2001:5a8:6a5:4600::/56   action=lookup table=sonic comment="auto
 # --- v6 default routes per routing table (Stage 2) ---
 # Same shape as /ip route above; gateways are the upstream link-locals
 # (visible in /ipv6 dhcp-client print detail as dhcp-server-v6=).
-# The literal gateways here are bootstrap defaults; the wan-reconciler
+# BOOTSTRAP — the literal gateways here are seeds; the wan-reconciler
 # script updates them in-place when the upstream LL changes (e.g.,
 # ISP swaps CPE hardware -> new upstream MAC -> new LL).
 /ipv6 route
@@ -1168,7 +1170,7 @@ set enabled=no
 # startup-delay=60s holds probes until dhcp-clients have bound on
 # apply-day.
 #
-# src-address literals are bootstrap defaults; netwatchSrcReconcile
+# BOOTSTRAP — src-address literals are seeds; netwatchSrcReconcile
 # heals them on /56 rotation. Host part 6f4:1cff:fe51:bad8 is
 # EUI-64 from the pinned bridge MAC 04:F4:1C:51:BA:D8.
 /tool netwatch
