@@ -1175,16 +1175,34 @@ set enabled=no
 /tool netwatch
 add comment=sonic-probe type=icmp host=2606:4700:4700::1111 src-address=2001:5a8:6a5:4600:6f4:1cff:fe51:bad8 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=sonic-up down-script=sonic-down
 add comment=mb-probe    type=icmp host=2606:4700:4700::1111 src-address=2607:f598:d488:6100:6f4:1cff:fe51:bad8 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=mb-up    down-script=mb-down
-# DIAGNOSTIC (added 2026-06-05, review-for-removal 2026-06-12): script-less
-# v4 probe of the MB gateway (first hop over the radio). Exists only to
-# correlate its log down/up lines against mb-probe's during the ongoing MB
-# loss episodes -- v4-gw downs alongside mb-probe downs = dual-stack radio
-# loss; mb-probe downs alone = v6-transit-only. No up/down scripts: it
-# observes, never fails anything over (check-gateway=ping on the d=1
-# routes already handles v4 first-hop failover). host= is the MB v4
-# gateway literal, NOT reconciler-healed -- if the MB next-hop ever
-# rotates, this entry goes stale and just logs noise; fix or drop it then.
-add comment=mb-gw-v4-probe type=icmp host=162.217.74.129 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s
+# DIAGNOSTIC (added 2026-06-05/06, review-for-removal 2026-06-12): two
+# script-less v4 probes that triangulate the ongoing MB loss episodes
+# against mb-probe's v6-path downs:
+#   mb-gw-v4-probe       v4 first hop (the radio link to MB's gateway)
+#   mb-v4-fullpath-probe full v4 path via MB (1.0.0.1 pinned out ether2
+#                        by a /32 host route below -- no fallback, so it
+#                        can't silently succeed via Sonic; the Bug A trap
+#                        only bites probes routed through a table with a
+#                        d=2 fallback)
+# Read: v6-only downs = MB v6 transit; v6+fullpath downs w/ gw up =
+# dual-stack loss beyond their gateway; all three down = radio/link.
+# Overnight 06-05->06-06 result: 57 v6 downs vs 1 gw down -- first hop
+# is clean, loss is behind MB's gateway.
+# No up/down scripts: these observe, never fail anything over
+# (check-gateway=ping on the d=1 routes owns v4 first-hop failover).
+# Gateway literals NOT reconciler-healed -- if the MB next-hop rotates,
+# these go stale and just log noise; fix or drop them then.
+add comment=mb-gw-v4-probe       type=icmp host=162.217.74.129 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s
+add comment=mb-v4-fullpath-probe type=icmp host=1.0.0.1        interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s
+# Host-route pin for mb-v4-fullpath-probe: 1.0.0.1/32 always egresses MB,
+# no d=2 fallback to lie through. Lives in main only -- the PBR tables
+# don't inherit it, so client traffic is unaffected. 1.0.0.1 (not 1.1.1.1:
+# that's MB's DHCP-pushed DNS upstream, pinning it would black-hole the
+# router's own resolver queries when MB v4 dies). Deliberately OUTSIDE the
+# auto-v4-route-* comment namespace: the reconciler/failover regex must
+# not heal or demote it.
+/ip route
+add dst-address=1.0.0.1/32 gateway=162.217.74.129 comment="DIAGNOSTIC-pin-mb-v4-fullpath-probe"
 
 # --- Wire up dhcp-client script= hooks; explicit apply-day bootstrap ---
 # All reconciler-managed entries (/routing rule, /ip route, /ipv6 route,
