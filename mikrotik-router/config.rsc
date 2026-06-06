@@ -1175,6 +1175,16 @@ set enabled=no
 /tool netwatch
 add comment=sonic-probe type=icmp host=2606:4700:4700::1111 src-address=2001:5a8:6a5:4600:6f4:1cff:fe51:bad8 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=sonic-up down-script=sonic-down
 add comment=mb-probe    type=icmp host=2606:4700:4700::1111 src-address=2607:f598:d488:6100:6f4:1cff:fe51:bad8 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s up-script=mb-up    down-script=mb-down
+# DIAGNOSTIC (added 2026-06-05, review-for-removal 2026-06-12): script-less
+# v4 probe of the MB gateway (first hop over the radio). Exists only to
+# correlate its log down/up lines against mb-probe's during the ongoing MB
+# loss episodes -- v4-gw downs alongside mb-probe downs = dual-stack radio
+# loss; mb-probe downs alone = v6-transit-only. No up/down scripts: it
+# observes, never fails anything over (check-gateway=ping on the d=1
+# routes already handles v4 first-hop failover). host= is the MB v4
+# gateway literal, NOT reconciler-healed -- if the MB next-hop ever
+# rotates, this entry goes stale and just logs noise; fix or drop it then.
+add comment=mb-gw-v4-probe type=icmp host=162.217.74.129 interval=10s timeout=2s packet-count=3 packet-interval=500ms startup-delay=60s
 
 # --- Wire up dhcp-client script= hooks; explicit apply-day bootstrap ---
 # All reconciler-managed entries (/routing rule, /ip route, /ipv6 route,
