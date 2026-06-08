@@ -30,8 +30,23 @@ netgear-wifi/         # Orbi RBR50/RBS50 v1, being reflashed to OpenWrt — benc
 - Omada controller is the hardware **OC200 v1** at
   `https://192.168.88.252/` (firmware 1.40.18 stable — see
   `omada-controller/oc200/README.md`).
-- Two EAP770 APs adopted, mesh formed (root wired on ether1 trunk,
-  satellite over 6 GHz channel 197 / 160 MHz).
+- Two EAP770 (US) v2.0 APs adopted, mesh formed (root `Root` wired on
+  ether1 trunk @ .251; satellite `Satellite` @ .247 over **6 GHz
+  ch213 / 160 MHz** wireless backhaul, ~−79 dBm, single hop).
+- **6 GHz is backhaul-only** (decided 2026-06-08). Client SSIDs are
+  2.4 + 5 GHz only — the `plumtree` SSID's 6 GHz band was disabled in
+  the controller. Rationale: each EAP770 has one 6 GHz radio, so the
+  wireless backhaul and any 6 GHz clients are forced onto the *same*
+  channel (ch213/160); clients then contend with the backhaul +
+  hidden-node collisions, which caused a 6E Mac in a LOS room to drop
+  the link in bursts (deauth reason 2, BadRSSI poor-link sessions in
+  airportd logs) while a 5 GHz-only Mac in the same spot was fine.
+  Dropping 6 GHz client access gives the backhaul the channel to
+  itself and moves clients to the solid 5 GHz. Disabling 6 GHz also
+  relaxed `plumtree` from WPA3+PMF-required to WPA2/WPA3-SAE
+  transition (6 GHz mandates WPA3+PMF; 2.4/5 don't). To reclaim 6 GHz
+  for clients later, the backhaul must leave 6 GHz first (wire the
+  satellite, or move the satellite for a stronger link).
 - Three SSIDs (`plumtree`, `plumtree-guest`, `plumtree-iot`) on VLANs
   10/20/30; clients get IPs from the rb5009 DHCP servers per VLAN.
 - rb5009 in its target shape: `vlan-filtering=yes`, `vlan88/10/20/30` L3

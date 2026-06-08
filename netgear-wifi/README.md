@@ -41,7 +41,7 @@ factory image (see [`FLASH.md`](FLASH.md) §4).
 Explored on 2026-05-08; decided not to deploy. Factors:
 
 - **No actual coverage gap to fill.** The Omada EAP770 mesh
-  (one wired root + one wireless satellite over 6 GHz channel 197)
+  (one wired root + one wireless satellite over 6 GHz channel 213)
   covers the house. Adding more APs would be answer-in-search-of-a-
   problem.
 - **Wireless backhaul is the only deployable option** — locations
