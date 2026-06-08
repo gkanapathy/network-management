@@ -1,0 +1,1001 @@
+ 2026-05-24 02:06:07 system,info filter6 rule added by run-after-reset (*B = /ipv6 firewall filter add action=drop chain=forward comment="drop bad src ipv6" src-address-list=bad_ipv6)
+ 2026-05-24 02:06:07 system,info filter6 rule added by run-after-reset (*C = /ipv6 firewall filter add action=drop chain=forward comment="drop bad dst ipv6" dst-address-list=bad_ipv6)
+ 2026-05-24 02:06:07 system,info filter6 rule added by run-after-reset (*D = /ipv6 firewall filter add action=drop chain=forward comment="rfc4890 hop-limit=1" hop-limit=equal:1 protocol=icmpv6)
+ 2026-05-24 02:06:07 system,info filter6 rule added by run-after-reset (*E = /ipv6 firewall filter add action=drop chain=forward comment="drop WAN-originated new (v6 parity)" connection-state=new in-interface-list=WAN)
+ 2026-05-24 02:06:07 system,info filter6 rule added by run-after-reset (*F = /ipv6 firewall filter add action=drop chain=forward comment="guest -> LAN: blocked" in-interface=vlan20 out-interface-list=LAN)
+ 2026-05-24 02:06:07 system,info filter6 rule added by run-after-reset (*10 = /ipv6 firewall filter add action=drop chain=forward comment="iot -> mgmt: blocked" in-interface=vlan30 out-interface=vlan88)
+ 2026-05-24 02:06:07 system,info filter6 rule added by run-after-reset (*11 = /ipv6 firewall filter add action=drop chain=forward comment="iot -> plumtree: new conns blocked (returns OK)" connection-state=new in-interface=vlan30 out-interface=vlan10)
+ 2026-05-24 02:06:07 system,info filter6 rule added by run-after-reset (*12 = /ipv6 firewall filter add action=drop chain=forward comment="iot -> guest: blocked" in-interface=vlan30 out-interface=vlan20)
+ 2026-05-24 02:06:07 system,info filter6 rule added by run-after-reset (*13 = /ipv6 firewall filter add action=accept chain=forward comment="accept ICMPv6 from LAN" in-interface-list=LAN protocol=icmpv6)
+ 2026-05-24 02:06:07 system,info filter6 rule added by run-after-reset (*14 = /ipv6 firewall filter add action=drop chain=forward comment="drop everything not from LAN" in-interface-list=!LAN)
+ 2026-05-24 02:06:07 system,info config changed by run-after-reset (/ip neighbor discovery-settings set discover-interface-list=LAN)
+ 2026-05-24 02:06:07 system,info mac-server interface changed by run-after-reset (/tool mac-server set allowed-interface-list=LAN)
+ 2026-05-24 02:06:07 system,info mac winbox setting changed by run-after-reset (/tool mac-server mac-winbox set allowed-interface-list=LAN)
+ 2026-05-24 02:06:07 system,info bandwidth-server changed by run-after-reset (/tool bandwidth-server set enabled=no)
+ 2026-05-24 02:06:07 dhcp,info client2 on sfp-sfpplus1 got IP address 23.93.121.110
+ 2026-05-24 02:06:07 system,info Netwatch config added by run-after-reset (*1 = /tool netwatch add comment=sonic-probe down-script=sonic-down host=2606:4700:4700::1111 interval=10s packet-count=3 packet-interval=500ms src-address=2001:5a8:6a5:4600:6f4:1cff:fe51:bad8 startup-delay=1m timeout=2s type=icmp up-script=sonic-up)
+ 2026-05-24 02:06:07 system,info Netwatch config added by run-after-reset (*2 = /tool netwatch add comment=mb-probe down-script=mb-down host=2606:4700:4700::1111 interval=10s packet-count=3 packet-interval=500ms src-address=2607:f598:d488:6100:6f4:1cff:fe51:bad8 startup-delay=1m timeout=2s type=icmp up-script=mb-up)
+ 2026-05-24 02:06:07 system,info Netwatch config added by run-after-reset (*3 = /tool netwatch add comment=mb-gw-v4-probe host=162.217.74.129 interval=10s packet-count=3 packet-interval=500ms startup-delay=1m timeout=2s type=icmp)
+ 2026-05-24 02:06:07 system,info dhcp client changed by run-after-reset/action:8 (/ip dhcp-client set client1 script="/system script run wan-reconciler")
+ 2026-05-24 02:06:07 system,info dhcp client changed by run-after-reset/action:9 (/ip dhcp-client set client2 script="/system script run wan-reconciler")
+ 2026-05-24 02:06:07 system,info DHCPv6 client on ether2 changed by run-after-reset/action:10 (/ipv6 dhcp-client set ether2 script="/system script run wan-reconciler")
+ 2026-05-24 02:06:07 system,info DHCPv6 client on sfp-sfpplus1 changed by run-after-reset/action:11 (/ipv6 dhcp-client set sfp-sfpplus1 script="/system script run wan-reconciler")
+ 2026-05-24 02:06:07 script,info wan-reconciler: pool sonic-pd not delegated yet
+ 2026-05-24 02:06:07 script,info wan-reconciler: v4 ether2 status=requesting...
+ 2026-05-24 02:06:07 script,info wan-reconciler: pool sonic-pd not delegated yet
+ 2026-05-24 02:06:07 dhcp,info client1 on ether2 got IP address 162.217.74.176
+ 2026-05-24 02:06:07 script,info wan-reconciler: pool sonic-pd not delegated yet
+ 2026-05-24 02:06:07 script,info wan-reconciler: pool sonic-pd not delegated yet
+ 2026-05-24 02:06:07 script,info wan-reconciler: pool sonic-pd not delegated yet
+ 2026-05-24 02:06:07 script,info wan-reconciler: pool sonic-pd not delegated yet
+ 2026-05-24 02:06:07 script,info wan-reconciler: pool sonic-pd not delegated yet
+ 2026-05-24 02:06:07 system,info new script scheduled by run-after-reset (*0 = /system scheduler add interval=10m name=wan-reconciler-tick on-event="/system script run wan-reconciler" policy=read,write,test)
+ 2026-05-24 02:06:07 system,info led settings changed by run-after-reset (/system leds settings set all-leds-off=after-1h)
+ 2026-05-24 02:06:07 system,info new script added by run-after-reset (*6 = /system script add name=toggle-leds policy=read,write source="\;     \n    :local cur [/system leds settings get all-leds-off]\;     \n    :if (\$cur = \"never\") do={\;     \n        /system leds settings set all-leds-off=immediate\;     \n    } else={\;     \n        /system leds settings set all-leds-off=never\;     \n    }\;     \n")
+ 2026-05-24 02:06:07 script,info config.rsc: done apply-20260605-201835-9632
+ 2026-05-24 02:06:07 system,info Mode Button configuration changed by run-after-reset (/system routerboard reset-button set enabled=yes hold-time=0s..2s on-event=toggle-leds)
+ 2026-05-24 02:06:07 script,info wan-reconciler: pool sonic-pd not delegated yet
+ 2026-05-24 02:06:07 script,info wan-reconciler: pool sonic-pd not delegated yet
+ 2026-05-24 02:06:07 script,info wan-reconciler: pool sonic-pd not delegated yet
+ 2026-05-24 02:06:07 script,info wan-reconciler: pool sonic-pd not delegated yet
+ 2026-05-24 02:06:07 script,info wan-reconciler: pool sonic-pd not delegated yet
+ 2026-05-24 02:06:08 script,info wan-reconciler: vlan88-sonic-pd /ipv6 address bind in progress (::/64 not in 2001:5a8:6a5:4600::/56), retry next tick
+ 2026-05-24 02:06:08 script,info wan-reconciler: vlan88-sonic-pd /ipv6 address bind in progress (::/64 not in 2001:5a8:6a5:4600::/56), retry next tick
+ 2026-05-24 02:06:09 dhcp,info plumtree-dhcp assigned 192.168.10.10 for DA:2B:19:3D:4F:F0 Mac
+ 2026-05-24 02:06:10 system,warning possible SYN flooding on tcp port 53
+ 2026-05-24 02:06:11 dhcp,info plumtree-dhcp assigned 192.168.10.19 for 76:3C:B2:88:62:5C iPad
+ 2026-05-24 02:06:12 dhcp,info plumtree-dhcp assigned 192.168.10.11 for B2:3C:CC:F1:12:9D MacBookPro
+ 2026-05-24 02:06:15 ssh,info publickey accepted for user: admin, fingerprint: SHA256:EcN1o1t8bwUrcJn/HFj35xLPuFnv+OAE1Nd/Y4O/go4=
+ 2026-05-24 02:06:15 system,info,account user admin logged in from 192.168.10.11 via ssh
+ 2026-05-24 02:06:15 system,info,account user admin logged out from 192.168.10.11 via ssh
+ 2026-05-24 02:06:16 dhcp,info plumtree-dhcp assigned 192.168.10.12 for CC:F4:11:CD:EA:85 Google-Nest-Mini
+ 2026-05-24 02:06:16 dhcp,info plumtree-dhcp assigned 192.168.10.240 for D4:F5:47:B8:8C:1D Google-Nest-Mini
+ 2026-05-24 02:06:16 ssh,info publickey accepted for user: admin, fingerprint: SHA256:EcN1o1t8bwUrcJn/HFj35xLPuFnv+OAE1Nd/Y4O/go4=
+ 2026-05-24 02:06:16 system,info,account user admin logged in from 192.168.10.11 via ssh
+ 2026-05-24 02:06:17 system,info,account user admin logged out from 192.168.10.11 via ssh
+ 2026-06-05 20:19:40 system,clock,critical,info ntp change time May/24/2026 02:06:17 => Jun/05/2026 20:19:40
+ 2026-06-05 20:19:45 dhcp,info mgmt-dhcp assigned 192.168.88.252 for 24:2F:D0:02:07:5A OC200_02075A
+ 2026-06-05 20:19:49 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 20:19:49 script,info sonic-up: restoring sonic-pd preferred on vlan10+vlan88, deprecating mb-pd; restoring v4 sonic routes
+ 2026-06-05 20:19:49 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:sonic-up/action:12 (/ipv6 nd prefix set *8 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:19:49 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:sonic-up/action:13 (/ipv6 nd prefix set *7 preferred-lifetime=0s)
+ 2026-06-05 20:19:49 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:sonic-up/action:14 (/ipv6 nd prefix set *6 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:19:49 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:sonic-up/action:15 (/ipv6 nd prefix set *5 preferred-lifetime=0s)
+ 2026-06-05 20:19:49 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:sonic-up/action:16 (/ip route set *80000001 distance=1)
+ 2026-06-05 20:19:49 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 20:19:49 netwatch,info event up [ type: icmp, host: 162.217.74.129 ]
+ 2026-06-05 20:19:49 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 20:19:49 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:sonic-up/action:17 (/ip route set *80000005 distance=1)
+ 2026-06-05 20:19:49 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:18 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:19:49 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:19 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 20:19:49 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:20 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:19:49 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:21 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 20:19:49 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:22 (/ip route set *80000003 distance=1)
+ 2026-06-05 20:19:51 ssh,info publickey accepted for user: admin, fingerprint: SHA256:EcN1o1t8bwUrcJn/HFj35xLPuFnv+OAE1Nd/Y4O/go4=
+ 2026-06-05 20:19:51 system,info,account user admin logged in from 192.168.10.11 via ssh
+ 2026-06-05 20:19:52 system,info,account user admin logged out from 192.168.10.11 via ssh
+ 2026-06-05 20:19:56 dhcp,info guest-dhcp assigned 192.168.20.249 for A4:C1:E8:14:51:1F
+ 2026-06-05 20:19:58 dhcp,info mgmt-dhcp assigned 192.168.88.251 for A8:29:48:D2:38:80 Root
+ 2026-06-05 20:20:03 system,info cloud change time Jun/05/2026 20:20:03 => Jun/05/2026 20:20:03
+ 2026-06-05 20:20:06 dhcp,info guest-dhcp assigned 192.168.20.242 for 4C:17:44:7F:4B:3D amazon-2ee098f5c
+ 2026-06-05 20:20:09 dhcp,info mgmt-dhcp assigned 192.168.88.247 for A8:29:48:CA:42:C0 Satellite
+ 2026-06-05 20:20:09 dhcp,info plumtree-dhcp deassigned 192.168.10.19 for 76:3C:B2:88:62:5C iPad
+ 2026-06-05 20:20:10 dhcp,info iot-dhcp assigned 192.168.30.250 for D4:8D:26:27:C6:E4 LG_Smart_Dryer2_open
+ 2026-06-05 20:20:10 dhcp,info iot-dhcp assigned 192.168.30.249 for DC:54:D7:1E:C0:75 amazon-211f9c98b
+ 2026-06-05 20:20:10 dhcp,info plumtree-dhcp assigned 192.168.10.19 for 76:3C:B2:88:62:5C iPad
+ 2026-06-05 20:20:11 dhcp,info plumtree-dhcp deassigned 192.168.10.240 for D4:F5:47:B8:8C:1D Google-Nest-Mini
+ 2026-06-05 20:20:11 dhcp,info plumtree-dhcp assigned 192.168.10.240 for D4:F5:47:B8:8C:1D Google-Nest-Mini
+ 2026-06-05 20:20:11 dhcp,info iot-dhcp assigned 192.168.30.248 for 78:9C:85:3C:99:47 AugustConnect
+ 2026-06-05 20:20:14 dhcp,info iot-dhcp assigned 192.168.30.247 for 78:9C:85:3B:EE:95 AugustConnect
+ 2026-06-05 20:20:21 dhcp,info guest-dhcp deassigned 192.168.20.249 for A4:C1:E8:14:51:1F
+ 2026-06-05 20:20:21 dhcp,info guest-dhcp assigned 192.168.20.249 for A4:C1:E8:14:51:1F
+ 2026-06-05 20:20:33 dhcp,info guest-dhcp deassigned 192.168.20.249 for A4:C1:E8:14:51:1F
+ 2026-06-05 20:20:33 dhcp,info guest-dhcp assigned 192.168.20.249 for A4:C1:E8:14:51:1F
+ 2026-06-05 20:20:38 dhcp,warning Detected conflict by ICMP response for 192.168.30.13
+ 2026-06-05 20:20:39 dhcp,info iot-dhcp assigned 192.168.30.12 for EC:75:0C:C6:3A:42 RE315
+ 2026-06-05 20:20:46 dhcp,info iot-dhcp deassigned 192.168.30.12 for EC:75:0C:C6:3A:42 RE315
+ 2026-06-05 20:20:46 dhcp,info iot-dhcp assigned 192.168.30.12 for EC:75:0C:C6:3A:42 RE315
+ 2026-06-05 20:21:03 dhcp,info iot-dhcp assigned 192.168.30.11 for FC:3C:D7:D0:A2:9D
+ 2026-06-05 20:24:43 dhcp,info plumtree-dhcp assigned 192.168.10.17 for F2:D3:D5:08:74:63 Mac
+ 2026-06-05 20:25:27 dhcp,info plumtree-dhcp assigned 192.168.10.23 for F8:0F:F9:45:7F:1A
+ 2026-06-05 20:25:27 dhcp,info plumtree-dhcp assigned 192.168.10.241 for 1C:F2:9A:09:49:FC
+ 2026-06-05 20:26:16 dhcp,info plumtree-dhcp assigned 192.168.10.20 for E4:E3:3D:DA:E2:C8
+ 2026-06-05 20:26:20 dhcp,info plumtree-dhcp assigned 192.168.10.14 for AA:73:E1:DB:48:E7 Oblivious-Frisbee
+ 2026-06-05 20:26:36 dhcp,info plumtree-dhcp assigned 192.168.10.248 for 3A:5A:5E:24:AF:E4 iPhone
+ 2026-06-05 20:29:55 dhcp,warning Detected conflict by ARP response for 192.168.30.10 from 34:E6:E6:25:07:AA
+ 2026-06-05 20:29:58 dhcp,info iot-dhcp assigned 192.168.30.14 for CC:95:D7:41:3E:68
+ 2026-06-05 20:31:55 dhcp,info iot-dhcp assigned 192.168.30.15 for 34:E6:E6:25:07:AA LG_Smart_Laundry2_open
+ 2026-06-05 20:33:25 dhcp,info guest-dhcp assigned 192.168.20.241 for D0:55:09:A2:63:B0
+ 2026-06-05 20:33:53 dhcp,info guest-dhcp assigned 192.168.20.239 for 72:F0:63:91:84:40 Mac
+ 2026-06-05 20:37:36 dhcp,info plumtree-dhcp assigned 192.168.10.13 for 9E:AF:D2:12:83:84 Mac
+ 2026-06-05 20:39:20 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 20:39:20 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 20:39:20 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:23 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 20:39:20 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:24 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:39:20 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:25 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 20:39:20 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:26 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:39:20 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:27 (/ip route set *80000003 distance=3)
+ 2026-06-05 20:39:30 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 20:39:30 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 20:39:30 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:28 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:39:30 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:29 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 20:39:30 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:30 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:39:30 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:31 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 20:39:30 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:32 (/ip route set *80000003 distance=1)
+ 2026-06-05 20:58:21 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 20:58:21 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 20:58:21 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:33 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 20:58:21 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:34 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:58:21 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:35 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 20:58:21 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:36 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:58:21 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:37 (/ip route set *80000003 distance=3)
+ 2026-06-05 20:58:31 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 20:58:31 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 20:58:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:38 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:58:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:39 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 20:58:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:40 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:58:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:41 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 20:58:31 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:42 (/ip route set *80000003 distance=1)
+ 2026-06-05 20:58:51 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 20:58:51 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 20:58:51 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:43 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 20:58:51 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:44 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:58:51 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:45 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 20:58:51 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:46 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:58:51 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:47 (/ip route set *80000003 distance=3)
+ 2026-06-05 20:59:01 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 20:59:01 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 20:59:01 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:48 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:59:01 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:49 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 20:59:01 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:50 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:59:01 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:51 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 20:59:01 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:52 (/ip route set *80000003 distance=1)
+ 2026-06-05 20:59:31 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 20:59:31 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 20:59:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:53 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 20:59:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:54 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:59:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:55 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 20:59:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:56 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:59:31 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:57 (/ip route set *80000003 distance=3)
+ 2026-06-05 20:59:41 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 20:59:41 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 20:59:41 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:58 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:59:41 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:59 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 20:59:41 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:60 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 20:59:41 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:61 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 20:59:41 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:62 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:00:11 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:00:11 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:00:11 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:63 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:00:11 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:64 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:00:11 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:65 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:00:11 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:66 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:00:11 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:67 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:00:31 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:00:31 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:00:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:68 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:00:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:69 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:00:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:70 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:00:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:71 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:00:31 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:72 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:00:51 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:00:51 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:00:51 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:73 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:00:51 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:74 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:00:51 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:75 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:00:51 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:76 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:00:51 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:77 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:01:01 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:01:01 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:01:01 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:78 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:01:01 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:79 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:01:01 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:80 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:01:01 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:81 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:01:01 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:82 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:01:21 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:01:21 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:01:21 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:83 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:01:21 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:84 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:01:21 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:85 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:01:21 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:86 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:01:21 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:87 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:01:31 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:01:31 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:01:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:88 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:01:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:89 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:01:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:90 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:01:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:91 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:01:31 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:92 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:03:31 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:03:31 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:03:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:93 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:03:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:94 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:03:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:95 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:03:31 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:96 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:03:31 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:97 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:03:41 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:03:41 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:03:41 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:98 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:03:41 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:99 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:03:41 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:100 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:03:41 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:101 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:03:41 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:102 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:10:01 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:10:01 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:10:01 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:103 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:10:01 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:104 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:10:01 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:105 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:10:01 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:106 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:10:01 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:107 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:10:21 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:10:21 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:10:21 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:108 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:10:21 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:109 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:10:21 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:110 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:10:21 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:111 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:10:21 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:112 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:17:12 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:17:12 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:17:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:113 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:17:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:114 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:17:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:115 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:17:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:116 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:17:12 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:117 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:17:22 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:17:22 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:17:22 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:118 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:17:22 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:119 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:17:22 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:120 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:17:22 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:121 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:17:22 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:122 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:17:42 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:17:42 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:17:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:123 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:17:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:124 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:17:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:125 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:17:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:126 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:17:42 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:127 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:18:02 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:18:02 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:18:02 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:128 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:18:02 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:129 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:18:02 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:130 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:18:02 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:131 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:18:02 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:132 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:21:02 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:21:02 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:21:02 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:133 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:21:02 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:134 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:21:02 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:135 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:21:02 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:136 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:21:02 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:137 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:21:12 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:21:12 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:21:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:138 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:21:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:139 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:21:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:140 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:21:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:141 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:21:12 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:142 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:26:34 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:26:34 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:26:34 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:143 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:26:34 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:144 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:26:34 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:145 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:26:34 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:146 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:26:34 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:147 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:26:42 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:26:42 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:26:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:148 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:26:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:149 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:26:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:150 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:26:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:151 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:26:42 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:152 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:31:12 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:31:12 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:31:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:153 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:31:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:154 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:31:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:155 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:31:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:156 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:31:12 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:157 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:31:22 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:31:22 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:31:22 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:158 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:31:22 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:159 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:31:22 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:160 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:31:22 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:161 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:31:22 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:162 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:31:32 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:31:32 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:31:32 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:163 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:31:32 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:164 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:31:32 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:165 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:31:32 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:166 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:31:32 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:167 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:31:42 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:31:42 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:31:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:168 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:31:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:169 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:31:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:170 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:31:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:171 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:31:42 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:172 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:38:13 ssh,info publickey accepted for user: admin, fingerprint: SHA256:EcN1o1t8bwUrcJn/HFj35xLPuFnv+OAE1Nd/Y4O/go4=
+ 2026-06-05 21:38:13 system,info,account user admin logged in from 192.168.10.11 via ssh
+ 2026-06-05 21:38:13 system,info,account user admin logged out from 192.168.10.11 via ssh
+ 2026-06-05 21:38:28 ssh,info publickey accepted for user: admin, fingerprint: SHA256:EcN1o1t8bwUrcJn/HFj35xLPuFnv+OAE1Nd/Y4O/go4=
+ 2026-06-05 21:38:28 system,info,account user admin logged in from 192.168.10.11 via ssh
+ 2026-06-05 21:38:28 system,info,account user admin logged out from 192.168.10.11 via ssh
+ 2026-06-05 21:38:32 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:38:32 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:38:32 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:173 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:38:32 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:174 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:38:32 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:175 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:38:33 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:176 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:38:33 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:177 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:38:42 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:38:42 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:38:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:178 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:38:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:179 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:38:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:180 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:38:42 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:181 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:38:43 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:182 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:38:44 ssh,info publickey accepted for user: admin, fingerprint: SHA256:EcN1o1t8bwUrcJn/HFj35xLPuFnv+OAE1Nd/Y4O/go4=
+ 2026-06-05 21:38:44 system,info,account user admin logged in from 192.168.10.11 via ssh
+ 2026-06-05 21:38:44 system,info,account user admin logged out from 192.168.10.11 via ssh
+ 2026-06-05 21:48:05 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:48:05 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:48:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:183 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:48:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:184 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:48:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:185 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:48:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:186 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:48:05 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:187 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:48:13 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:48:13 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:48:13 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:188 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:48:13 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:189 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:48:13 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:190 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:48:13 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:191 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:48:13 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:192 (/ip route set *80000003 distance=1)
+ 2026-06-05 21:51:55 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:51:55 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 21:51:55 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:193 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 21:51:55 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:194 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:51:55 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:195 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 21:51:55 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:196 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:51:55 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:197 (/ip route set *80000003 distance=3)
+ 2026-06-05 21:52:03 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 21:52:03 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 21:52:03 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:198 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:52:03 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:199 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 21:52:03 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:200 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 21:52:03 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:201 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 21:52:03 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:202 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:03:04 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:03:04 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:03:04 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:203 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:03:04 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:204 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:03:04 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:205 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:03:04 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:206 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:03:04 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:207 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:03:14 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:03:14 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:03:14 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:208 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:03:14 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:209 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:03:14 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:210 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:03:14 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:211 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:03:14 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:212 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:03:28 dhcp,info iot-dhcp deassigned 192.168.30.14 for CC:95:D7:41:3E:68
+ 2026-06-05 22:03:28 dhcp,info iot-dhcp assigned 192.168.30.14 for CC:95:D7:41:3E:68
+ 2026-06-05 22:13:44 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:13:44 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:13:44 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:213 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:13:44 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:214 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:13:44 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:215 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:13:44 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:216 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:13:44 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:217 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:13:54 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:13:54 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:13:54 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:218 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:13:54 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:219 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:13:54 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:220 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:13:54 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:221 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:13:54 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:222 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:15:04 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:15:04 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:15:04 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:223 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:15:04 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:224 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:15:04 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:225 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:15:04 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:226 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:15:04 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:227 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:15:34 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:15:34 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:15:34 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:228 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:15:34 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:229 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:15:34 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:230 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:15:34 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:231 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:15:34 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:232 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:16:24 dhcp,info iot-dhcp deassigned 192.168.30.247 for 78:9C:85:3B:EE:95 AugustConnect
+ 2026-06-05 22:16:24 dhcp,info iot-dhcp assigned 192.168.30.247 for 78:9C:85:3B:EE:95 AugustConnect
+ 2026-06-05 22:16:54 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:16:54 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:16:54 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:233 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:16:54 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:234 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:16:54 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:235 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:16:54 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:236 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:16:54 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:237 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:17:04 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:17:04 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:17:04 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:238 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:17:04 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:239 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:17:04 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:240 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:17:04 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:241 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:17:04 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:242 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:28:45 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:28:45 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:28:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:243 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:28:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:244 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:28:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:245 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:28:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:246 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:28:45 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:247 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:29:05 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:29:05 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:29:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:248 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:29:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:249 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:29:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:250 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:29:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:251 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:29:05 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:252 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:29:35 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:29:35 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:29:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:253 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:29:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:254 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:29:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:255 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:29:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:256 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:29:35 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:257 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:29:45 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:29:45 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:29:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:258 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:29:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:259 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:29:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:260 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:29:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:261 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:29:45 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:262 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:30:05 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:30:05 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:30:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:263 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:30:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:264 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:30:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:265 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:30:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:266 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:30:05 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:267 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:30:25 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:30:25 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:30:25 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:268 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:30:25 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:269 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:30:25 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:270 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:30:25 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:271 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:30:25 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:272 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:30:35 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:30:35 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:30:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:273 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:30:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:274 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:30:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:275 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:30:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:276 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:30:35 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:277 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:30:55 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:30:55 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:30:55 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:278 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:30:55 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:279 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:30:55 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:280 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:30:55 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:281 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:30:55 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:282 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:33:28 dhcp,info iot-dhcp deassigned 192.168.30.14 for CC:95:D7:41:3E:68
+ 2026-06-05 22:34:05 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:34:05 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:34:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:283 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:34:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:284 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:34:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:285 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:34:05 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:286 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:34:05 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:287 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:34:15 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:34:15 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:34:15 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:288 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:34:15 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:289 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:34:15 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:290 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:34:15 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:291 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:34:15 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:292 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:34:35 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:34:35 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:34:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:293 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:34:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:294 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:34:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:295 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:34:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:296 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:34:35 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:297 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:34:45 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:34:45 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:34:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:298 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:34:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:299 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:34:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:300 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:34:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:301 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:34:45 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:302 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:45:27 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:45:27 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:45:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:303 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:45:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:304 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:45:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:305 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:45:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:306 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:45:27 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:307 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:45:55 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:45:55 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:45:55 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:308 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:45:55 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:309 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:45:55 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:310 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:45:55 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:311 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:45:55 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:312 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:46:35 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:46:35 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:46:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:313 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:46:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:314 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:46:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:315 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:46:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:316 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:46:35 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:317 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:46:45 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:46:45 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:46:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:318 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:46:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:319 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:46:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:320 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:46:45 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:321 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:46:45 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:322 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:51:16 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:51:16 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:51:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:323 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:51:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:324 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:51:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:325 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:51:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:326 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:51:16 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:327 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:51:26 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:51:26 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:51:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:328 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:51:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:329 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:51:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:330 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:51:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:331 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:51:26 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:332 (/ip route set *80000003 distance=1)
+ 2026-06-05 22:52:16 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:52:16 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 22:52:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:333 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 22:52:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:334 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:52:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:335 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 22:52:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:336 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:52:16 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:337 (/ip route set *80000003 distance=3)
+ 2026-06-05 22:52:26 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 22:52:26 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 22:52:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:338 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:52:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:339 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 22:52:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:340 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 22:52:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:341 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 22:52:26 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:342 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:01:16 netwatch,info event down [ type: icmp, host: 162.217.74.129 ]
+ 2026-06-05 23:01:16 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:01:16 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:01:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:343 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:01:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:344 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:01:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:345 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:01:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:346 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:01:16 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:347 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:01:26 netwatch,info event up [ type: icmp, host: 162.217.74.129 ]
+ 2026-06-05 23:01:26 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:01:26 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:01:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:348 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:01:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:349 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:01:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:350 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:01:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:351 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:01:26 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:352 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:06:06 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:06:06 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:06:06 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:353 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:06:06 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:354 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:06:06 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:355 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:06:06 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:356 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:06:06 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:357 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:06:16 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:06:16 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:06:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:358 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:06:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:359 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:06:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:360 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:06:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:361 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:06:16 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:362 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:11:26 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:11:26 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:11:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:363 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:11:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:364 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:11:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:365 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:11:26 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:366 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:11:26 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:367 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:11:36 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:11:36 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:11:36 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:368 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:11:36 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:369 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:11:36 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:370 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:11:36 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:371 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:11:36 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:372 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:14:16 dhcp,info guest-dhcp deassigned 192.168.20.242 for 4C:17:44:7F:4B:3D amazon-2ee098f5c
+ 2026-06-05 23:18:07 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:18:07 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:18:07 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:373 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:18:07 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:374 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:18:07 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:375 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:18:07 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:376 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:18:07 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:377 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:18:17 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:18:17 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:18:17 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:378 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:18:17 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:379 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:18:17 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:380 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:18:17 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:381 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:18:17 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:382 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:20:23 dhcp,info guest-dhcp deassigned 192.168.20.241 for D0:55:09:A2:63:B0
+ 2026-06-05 23:20:27 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:20:27 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:20:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:383 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:20:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:384 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:20:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:385 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:20:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:386 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:20:27 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:387 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:20:37 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:20:37 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:20:37 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:388 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:20:37 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:389 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:20:37 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:390 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:20:37 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:391 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:20:37 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:392 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:20:47 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:20:47 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:20:47 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:393 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:20:47 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:394 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:20:47 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:395 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:20:47 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:396 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:20:47 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:397 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:21:07 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:21:07 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:21:07 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:398 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:21:07 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:399 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:21:07 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:400 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:21:07 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:401 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:21:07 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:402 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:21:17 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:21:17 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:21:17 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:403 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:21:17 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:404 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:21:17 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:405 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:21:17 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:406 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:21:17 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:407 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:21:27 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:21:27 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:21:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:408 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:21:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:409 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:21:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:410 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:21:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:411 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:21:27 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:412 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:22:27 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:22:27 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:22:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:413 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:22:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:414 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:22:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:415 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:22:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:416 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:22:27 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:417 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:22:47 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:22:47 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:22:47 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:418 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:22:47 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:419 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:22:47 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:420 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:22:47 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:421 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:22:47 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:422 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:32:07 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:32:08 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:32:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:423 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:32:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:424 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:32:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:425 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:32:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:426 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:32:08 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:427 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:32:17 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:32:17 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:32:17 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:428 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:32:17 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:429 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:32:18 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:430 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:32:18 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:431 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:32:18 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:432 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:33:38 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:33:38 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:33:38 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:433 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:33:38 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:434 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:33:38 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:435 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:33:38 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:436 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:33:38 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:437 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:33:48 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:33:48 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:33:48 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:438 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:33:48 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:439 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:33:48 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:440 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:33:48 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:441 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:33:48 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:442 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:35:08 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:35:08 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:35:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:443 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:35:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:444 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:35:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:445 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:35:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:446 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:35:08 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:447 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:35:28 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:35:28 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:35:28 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:448 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:35:28 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:449 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:35:28 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:450 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:35:28 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:451 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:35:28 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:452 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:35:48 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:35:48 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:35:48 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:453 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:35:48 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:454 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:35:48 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:455 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:35:48 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:456 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:35:48 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:457 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:36:00 dhcp,info guest-dhcp deassigned 192.168.20.249 for A4:C1:E8:14:51:1F
+ 2026-06-05 23:36:00 dhcp,info guest-dhcp assigned 192.168.20.249 for A4:C1:E8:14:51:1F
+ 2026-06-05 23:36:08 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:36:08 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:36:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:458 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:36:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:459 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:36:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:460 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:36:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:461 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:36:08 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:462 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:39:58 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:39:58 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:39:58 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:463 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:39:58 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:464 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:39:58 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:465 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:39:58 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:466 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:39:58 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:467 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:40:08 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:40:08 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:40:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:468 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:40:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:469 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:40:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:470 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:40:08 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:471 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:40:08 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:472 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:49:48 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:49:48 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:49:48 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:473 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:49:48 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:474 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:49:48 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:475 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:49:48 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:476 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:49:48 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:477 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:49:58 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:49:58 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:49:58 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:478 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:49:58 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:479 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:49:58 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:480 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:49:58 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:481 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:49:58 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:482 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:50:32 dhcp,info guest-dhcp assigned 192.168.20.241 for D0:55:09:A2:63:B0
+ 2026-06-05 23:53:09 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:53:09 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:53:09 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:483 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:53:09 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:484 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:53:09 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:485 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:53:09 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:486 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:53:09 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:487 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:53:18 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:53:18 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:53:18 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:488 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:53:18 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:489 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:53:18 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:490 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:53:18 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:491 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:53:18 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:492 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:55:59 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:55:59 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:55:59 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:493 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:55:59 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:494 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:55:59 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:495 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:55:59 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:496 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:55:59 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:497 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:56:08 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:56:08 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:56:09 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:498 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:56:09 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:499 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:56:09 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:500 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:56:09 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:501 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:56:09 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:502 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:57:49 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:57:49 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:57:49 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:503 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:57:49 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:504 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:57:49 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:505 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:57:49 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:506 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:57:49 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:507 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:57:59 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:57:59 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:57:59 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:508 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:57:59 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:509 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:57:59 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:510 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:57:59 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:511 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:57:59 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:512 (/ip route set *80000003 distance=1)
+ 2026-06-05 23:58:19 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:58:19 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-05 23:58:19 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:513 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-05 23:58:19 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:514 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:58:19 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:515 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-05 23:58:19 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:516 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:58:19 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:517 (/ip route set *80000003 distance=3)
+ 2026-06-05 23:58:29 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-05 23:58:29 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-05 23:58:29 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:518 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:58:29 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:519 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-05 23:58:29 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:520 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-05 23:58:29 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:521 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-05 23:58:29 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:522 (/ip route set *80000003 distance=1)
+ 2026-06-06 00:00:09 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 00:00:09 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-06 00:00:09 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:523 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-06 00:00:09 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:524 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:00:09 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:525 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-06 00:00:09 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:526 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:00:09 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:527 (/ip route set *80000003 distance=3)
+ 2026-06-06 00:00:19 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 00:00:19 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-06 00:00:19 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:528 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:00:19 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:529 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-06 00:00:19 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:530 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:00:19 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:531 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-06 00:00:19 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:532 (/ip route set *80000003 distance=1)
+ 2026-06-06 00:16:45 dhcp,info guest-dhcp deassigned 192.168.20.249 for A4:C1:E8:14:51:1F
+ 2026-06-06 00:16:45 dhcp,info guest-dhcp assigned 192.168.20.249 for A4:C1:E8:14:51:1F
+ 2026-06-06 00:18:52 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 00:18:52 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-06 00:18:52 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:533 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-06 00:18:52 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:534 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:18:52 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:535 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-06 00:18:52 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:536 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:18:52 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:537 (/ip route set *80000003 distance=3)
+ 2026-06-06 00:19:00 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 00:19:00 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-06 00:19:00 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:538 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:19:00 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:539 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-06 00:19:00 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:540 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:19:00 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:541 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-06 00:19:00 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:542 (/ip route set *80000003 distance=1)
+ 2026-06-06 00:29:00 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 00:29:00 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-06 00:29:00 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:543 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-06 00:29:00 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:544 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:29:00 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:545 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-06 00:29:00 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:546 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:29:00 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:547 (/ip route set *80000003 distance=3)
+ 2026-06-06 00:29:10 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 00:29:10 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-06 00:29:10 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:548 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:29:10 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:549 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-06 00:29:10 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:550 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:29:10 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:551 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-06 00:29:10 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:552 (/ip route set *80000003 distance=1)
+ 2026-06-06 00:29:30 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 00:29:30 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-06 00:29:30 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:553 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-06 00:29:30 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:554 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:29:30 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:555 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-06 00:29:30 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:556 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:29:30 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:557 (/ip route set *80000003 distance=3)
+ 2026-06-06 00:29:40 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 00:29:40 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-06 00:29:40 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:558 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:29:40 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:559 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-06 00:29:40 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:560 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:29:40 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:561 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-06 00:29:40 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:562 (/ip route set *80000003 distance=1)
+ 2026-06-06 00:33:00 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 00:33:00 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-06 00:33:00 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:563 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-06 00:33:00 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:564 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:33:00 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:565 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-06 00:33:00 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:566 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:33:00 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:567 (/ip route set *80000003 distance=3)
+ 2026-06-06 00:33:10 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 00:33:10 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-06 00:33:10 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:568 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:33:10 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:569 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-06 00:33:10 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:570 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 00:33:10 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:571 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-06 00:33:10 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:572 (/ip route set *80000003 distance=1)
+ 2026-06-06 00:46:05 dhcp,info guest-dhcp assigned 192.168.20.242 for 4C:17:44:7F:4B:3D amazon-2ee098f5c
+ 2026-06-06 01:02:11 dhcp,info guest-dhcp assigned 192.168.20.238 for 4C:6B:B8:36:BE:B9
+ 2026-06-06 01:16:05 dhcp,info guest-dhcp deassigned 192.168.20.242 for 4C:17:44:7F:4B:3D amazon-2ee098f5c
+ 2026-06-06 01:32:11 dhcp,info guest-dhcp deassigned 192.168.20.238 for 4C:6B:B8:36:BE:B9
+ 2026-06-06 02:00:03 dhcp,info guest-dhcp assigned 192.168.20.238 for 4C:6B:B8:36:BE:B9
+ 2026-06-06 02:03:16 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 02:03:16 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-06 02:03:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:573 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-06 02:03:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:574 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 02:03:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:575 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-06 02:03:16 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:576 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 02:03:16 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:577 (/ip route set *80000003 distance=3)
+ 2026-06-06 02:03:24 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 02:03:24 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-06 02:03:24 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:578 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 02:03:24 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:579 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-06 02:03:24 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:580 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 02:03:24 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:581 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-06 02:03:24 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:582 (/ip route set *80000003 distance=1)
+ 2026-06-06 02:30:03 dhcp,info guest-dhcp deassigned 192.168.20.238 for 4C:6B:B8:36:BE:B9
+ 2026-06-06 02:31:27 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 02:31:27 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-06 02:31:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:583 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-06 02:31:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:584 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 02:31:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:585 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-06 02:31:27 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:586 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 02:31:27 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:587 (/ip route set *80000003 distance=3)
+ 2026-06-06 02:31:35 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 02:31:35 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-06 02:31:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:588 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 02:31:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:589 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-06 02:31:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:590 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 02:31:35 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:591 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-06 02:31:35 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:592 (/ip route set *80000003 distance=1)
+ 2026-06-06 02:48:07 dhcp,info guest-dhcp assigned 192.168.20.242 for 4C:17:44:7F:4B:3D amazon-2ee098f5c
+ 2026-06-06 03:18:07 dhcp,info guest-dhcp deassigned 192.168.20.242 for 4C:17:44:7F:4B:3D amazon-2ee098f5c
+ 2026-06-06 04:21:22 dhcp,info plumtree-dhcp deassigned 192.168.10.12 for CC:F4:11:CD:EA:85 Google-Nest-Mini
+ 2026-06-06 04:21:22 dhcp,info plumtree-dhcp assigned 192.168.10.12 for CC:F4:11:CD:EA:85 Google-Nest-Mini
+ 2026-06-06 04:42:12 dhcp,info guest-dhcp deassigned 192.168.20.241 for D0:55:09:A2:63:B0
+ 2026-06-06 04:47:07 dhcp,info plumtree-dhcp deassigned 192.168.10.240 for D4:F5:47:B8:8C:1D Google-Nest-Mini
+ 2026-06-06 04:47:07 dhcp,info plumtree-dhcp assigned 192.168.10.240 for D4:F5:47:B8:8C:1D Google-Nest-Mini
+ 2026-06-06 04:50:08 dhcp,info guest-dhcp assigned 192.168.20.242 for 4C:17:44:7F:4B:3D amazon-2ee098f5c
+ 2026-06-06 04:50:32 dhcp,info guest-dhcp assigned 192.168.20.241 for D0:55:09:A2:63:B0
+ 2026-06-06 05:20:08 dhcp,info guest-dhcp deassigned 192.168.20.242 for 4C:17:44:7F:4B:3D amazon-2ee098f5c
+ 2026-06-06 06:09:45 dhcp,info iot-dhcp deassigned 192.168.30.248 for 78:9C:85:3C:99:47 AugustConnect
+ 2026-06-06 06:09:45 dhcp,info iot-dhcp assigned 192.168.30.248 for 78:9C:85:3C:99:47 AugustConnect
+ 2026-06-06 06:52:08 dhcp,info guest-dhcp assigned 192.168.20.242 for 4C:17:44:7F:4B:3D amazon-2ee098f5c
+ 2026-06-06 07:02:40 dhcp,info guest-dhcp assigned 192.168.20.238 for 4C:6B:B8:36:BE:B9
+ 2026-06-06 07:17:31 ssh,info publickey accepted for user: admin, fingerprint: SHA256:EcN1o1t8bwUrcJn/HFj35xLPuFnv+OAE1Nd/Y4O/go4=
+ 2026-06-06 07:17:31 system,info,account user admin logged in from 192.168.10.11 via ssh
+ 2026-06-06 07:17:32 system,info,account user admin logged out from 192.168.10.11 via ssh
+ 2026-06-06 07:17:32 ssh,info publickey accepted for user: admin, fingerprint: SHA256:EcN1o1t8bwUrcJn/HFj35xLPuFnv+OAE1Nd/Y4O/go4=
+ 2026-06-06 07:17:32 system,info,account user admin logged in from 192.168.10.11 via ssh
+ 2026-06-06 07:17:33 system,info,account user admin logged out from 192.168.10.11 via ssh
+ 2026-06-06 07:17:33 ssh,info publickey accepted for user: admin, fingerprint: SHA256:EcN1o1t8bwUrcJn/HFj35xLPuFnv+OAE1Nd/Y4O/go4=
+ 2026-06-06 07:17:33 system,info,account user admin logged in from 192.168.10.11 via ssh
+ 2026-06-06 07:17:34 system,info,account user admin logged out from 192.168.10.11 via ssh
+ 2026-06-06 07:17:34 ssh,info publickey accepted for user: admin, fingerprint: SHA256:EcN1o1t8bwUrcJn/HFj35xLPuFnv+OAE1Nd/Y4O/go4=
+ 2026-06-06 07:17:34 system,info,account user admin logged in from 192.168.10.11 via ssh
+ 2026-06-06 07:17:35 system,info,account user admin logged out from 192.168.10.11 via ssh
+ 2026-06-06 07:17:52 ssh,info publickey accepted for user: admin, fingerprint: SHA256:EcN1o1t8bwUrcJn/HFj35xLPuFnv+OAE1Nd/Y4O/go4=
+ 2026-06-06 07:17:52 system,info,account user admin logged in from 192.168.10.11 via ssh
+ 2026-06-06 07:17:53 system,info,account user admin logged out from 192.168.10.11 via ssh
+ 2026-06-06 07:22:08 dhcp,info guest-dhcp deassigned 192.168.20.242 for 4C:17:44:7F:4B:3D amazon-2ee098f5c
+ 2026-06-06 08:08:02 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 08:08:02 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-06 08:08:02 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:593 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-06 08:08:02 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:594 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 08:08:02 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:595 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-06 08:08:02 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:596 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 08:08:02 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:597 (/ip route set *80000003 distance=3)
+ 2026-06-06 08:08:12 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 08:08:12 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-06 08:08:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:598 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 08:08:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:599 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-06 08:08:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:600 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 08:08:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:601 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-06 08:08:12 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:602 (/ip route set *80000003 distance=1)
+ 2026-06-06 08:15:05 dhcp,info guest-dhcp assigned 192.168.20.242 for 4C:17:44:7F:4B:3D amazon-2ee098f5c
+ 2026-06-06 08:18:12 netwatch,info event down [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 08:18:12 script,info mb-down: deprecating mb-pd on vlan20+vlan30, promoting sonic-pd; demoting v4 mb routes
+ 2026-06-06 08:18:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:603 (/ipv6 nd prefix set *9 preferred-lifetime=0s)
+ 2026-06-06 08:18:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:604 (/ipv6 nd prefix set *A preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 08:18:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:605 (/ipv6 nd prefix set *B preferred-lifetime=0s)
+ 2026-06-06 08:18:12 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:606 (/ipv6 nd prefix set *C preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 08:18:12 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-down/action:607 (/ip route set *80000003 distance=3)
+ 2026-06-06 08:18:22 netwatch,info event up [ type: icmp, host: 2606:4700:4700::1111 ]
+ 2026-06-06 08:18:22 script,info mb-up: restoring mb-pd preferred on vlan20+vlan30, deprecating sonic-pd; restoring v4 mb routes
+ 2026-06-06 08:18:23 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:608 (/ipv6 nd prefix set *9 preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 08:18:23 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:609 (/ipv6 nd prefix set *A preferred-lifetime=0s)
+ 2026-06-06 08:18:23 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:610 (/ipv6 nd prefix set *B preferred-lifetime=30m valid-lifetime=30m)
+ 2026-06-06 08:18:23 system,info radvd prefix changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:611 (/ipv6 nd prefix set *C preferred-lifetime=0s)
+ 2026-06-06 08:18:23 system,info route 0.0.0.0/0 changed by netwatch:type: icmp, host: 2606:4700:4700::1111/script:mb-up/action:612 (/ip route set *80000003 distance=1)
+ 2026-06-06 09:21:46 dhcp,info plumtree-dhcp deassigned 192.168.10.10 for DA:2B:19:3D:4F:F0 Mac
+ 2026-06-06 09:21:47 dhcp,info plumtree-dhcp assigned 192.168.10.10 for DA:2B:19:3D:4F:F0 Mac
+ 2026-06-06 09:28:00 ssh,info publickey accepted for user: admin, fingerprint: SHA256:EcN1o1t8bwUrcJn/HFj35xLPuFnv+OAE1Nd/Y4O/go4=
+ 2026-06-06 09:28:00 system,info,account user admin logged in from 192.168.10.11 via ssh
+
