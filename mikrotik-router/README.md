@@ -219,17 +219,28 @@ separated**, not slash-separated:
 
 # subcommands under a menu (e.g. what lives under /disk):
 /console/inspect request=child path=disk as-value
+
+# enumerate the valid VALUES of an enum-typed property — use
+# request=completion with the partial command in `input` (NOT syntax):
+/console/inspect request=completion input="/system logging add topics="
 ```
 
 This is how the `/disk` format command turned out to be `format` (not the
-older `format-drive`) and which params it takes (`file-system`, `label`).
+older `format-drive`) and which params it takes (`file-system`, `label`),
+and how the full 103-entry `topics` enum was dumped (severity +
+subsystem + `packet`/`raw`/`event`… qualifiers).
 
-Caveat: `inspect` shows argument *names*, **not** integer value ranges.
-Valid ranges surface only from the runtime error (e.g.
-`disk-lines-per-file out of range (1..65535)`) or the docs — which is how
-the 65535 per-file log-line cap was found, after a first apply tried
-200000 and halted. (Hence: numeric-valued blocks belong below the
-lockout gate, so a range error halts harmlessly — see config.rsc.)
+Caveats:
+
+- `request=syntax` shows argument *names* only — **not** their enum
+  values and **not** integer ranges. For enum values use
+  `request=completion` (above); for numeric ranges there's no inspect
+  path at all.
+- Integer ranges surface only from the runtime error (e.g.
+  `disk-lines-per-file out of range (1..65535)`) or the docs — which is
+  how the 65535 per-file log-line cap was found, after a first apply
+  tried 200000 and halted. (Hence: numeric-valued blocks belong below
+  the lockout gate, so a range error halts harmlessly — see config.rsc.)
 
 ## Common pitfalls
 
