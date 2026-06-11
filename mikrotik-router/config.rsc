@@ -1269,15 +1269,26 @@ set [find interface=sfp-sfpplus1] script="/system script run wan-reconciler"
 # no-defaults reset, so we `set` it (not `add`) -- retarget it to the
 # SSD with a rolling window (~6.5M lines = 65535 lines x 100 files;
 # 65535 is the per-file max), circular (stop-on-full=no overwrites
-# oldest). The `!debug` rule sends everything EXCEPT the debug firehose
-# to disk; the default memory/echo rules are left intact, so a quick
-# `/log print` still reads the volatile memory buffer. (Drop the
-# `topics=!debug` to capture debug too, if ever troubleshooting.)
+# oldest).
+# Subscribe to disk by SEVERITY (info/warning/error/critical), mirroring
+# what the default memory/echo rules cover -- NOT a blanket `!debug` or
+# empty-topics catch-all. Gotcha: verbose trace topics (dns query /
+# `dns,packet`, and other per-packet tracing) are gated -- a subsystem
+# only EMITS them if a logging rule subscribes to that topic. A negation
+# catch-all (`!debug`) matches `dns`/`packet`, which silently turns DNS
+# packet+query tracing ON network-wide (~26 lines/sec firehose, 99.97%
+# noise -- see LESSONS / git history). Real events always carry a
+# severity topic; the traces don't, so severity-based rules capture
+# every event without enabling any firehose. Default memory/echo rules
+# stay intact, so `/log print` still reads the volatile buffer.
 /system logging action
 set [find name=disk] disk-file-name=usb1/logs/log disk-lines-per-file=65535 \
     disk-file-count=100 disk-stop-on-full=no
 /system logging
-add topics=!debug action=disk
+add topics=info action=disk
+add topics=warning action=disk
+add topics=error action=disk
+add topics=critical action=disk
 
 # --- LEDs + reset-button-press toggle (cosmetic; placed at the end) ---
 # Default: turn off the front-panel LEDs after 1h of uptime. Lets us

@@ -473,6 +473,42 @@ context within other lessons:
   `always-allow-password-login` from v6) and `/ip ssh` has no
   `max-auth-tries` on 7.21.4.
 
+### A negation/catch-all logging rule silently enables verbose trace topics
+
+Verbose trace topics (`dns,packet`, per-query `dns`, and other
+per-packet subsystem tracing) are **gated on subscription**: a
+subsystem only *emits* them if some `/system logging` rule selects that
+topic. It's a performance optimization — no listener, no tracing.
+
+So a "log everything" rule written as a negation or empty-topics
+catch-all is a trap:
+
+```
+/system logging add topics=!debug action=disk   # DON'T
+```
+
+`!debug` matches `dns` and `packet` (neither is `debug`), which
+*subscribes* to them and thereby turns DNS packet+query tracing ON
+network-wide. Observed result: ~26 lines/sec, 99.97% `dns,packet`
+noise, a 256 GB rolling store reduced to ~3 days of retention, and a
+disk log that looked enormous next to the memory buffer (which never
+subscribed, so never triggered the tracing).
+
+Fix: subscribe by **severity**, mirroring the default memory/echo rules,
+never by negation:
+
+```
+/system logging add topics=info     action=disk
+/system logging add topics=warning  action=disk
+/system logging add topics=error    action=disk
+/system logging add topics=critical action=disk
+```
+
+Diagnostic tell: every *real* event carries a severity topic
+(`info`/`warning`/`error`/`critical`); the verbose traces do **not**.
+So severity-based rules capture every event and enable no firehose.
+(2026-06-11; see `config.rsc` § logging to disk.)
+
 ## Project-specific historical notes
 
 For the chronological "what we did when" record, the live config
