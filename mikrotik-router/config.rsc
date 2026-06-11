@@ -1269,14 +1269,15 @@ set [find interface=sfp-sfpplus1] script="/system script run wan-reconciler"
 # no-defaults reset, so we `set` it (not `add`) -- retarget it to the
 # SSD with a rolling window (~6.5M lines = 65535 lines x 100 files;
 # 65535 is the per-file max), circular (stop-on-full=no overwrites
-# oldest). The catch-all rule (empty topics) sends EVERYTHING incl.
-# debug to disk; the default memory/echo rules are left intact, so a
-# quick `/log print` still reads the volatile memory buffer.
+# oldest). The `!debug` rule sends everything EXCEPT the debug firehose
+# to disk; the default memory/echo rules are left intact, so a quick
+# `/log print` still reads the volatile memory buffer. (Drop the
+# `topics=!debug` to capture debug too, if ever troubleshooting.)
 /system logging action
 set [find name=disk] disk-file-name=usb1/logs/log disk-lines-per-file=65535 \
     disk-file-count=100 disk-stop-on-full=no
 /system logging
-add action=disk
+add topics=!debug action=disk
 
 # --- LEDs + reset-button-press toggle (cosmetic; placed at the end) ---
 # Default: turn off the front-panel LEDs after 1h of uptime. Lets us
