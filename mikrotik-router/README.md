@@ -290,29 +290,42 @@ Caveats:
 
 ## Disk (USB SSD)
 
-A USB SSD (slot `usb1`) holds the long-term log store. The filesystem is
-hardware state, **not** part of `config.rsc` (reset-configuration doesn't
-touch disk contents), so it's prepared once by hand:
+A USB SSD (slot `usb1`) holds the long-term log store. The **only** manual
+step is formatting it ext4 — a one-time hardware prep, since the filesystem
+is not part of `config.rsc` (reset-configuration doesn't touch disk
+contents):
 
 ```
 /disk format usb1 file-system=ext4 label=usb1   # ext4 = container-ready too
-/file add name=usb1/logs type=directory
 ```
 
-`config.rsc` then retargets the built-in `disk` logging action at
-`usb1/logs/log` and adds a catch-all (empty-topics) rule, so **all** log
-events — including debug — roll to disk. Rolling window is ~20M lines
-(200k lines × 100 files, `disk-stop-on-full=no` = overwrite oldest). The
-default memory/echo rules are left intact, so `/log print` still reads the
-volatile buffer. Files land as `usb1/logs/log.0.txt`, `log.1.txt`, …
+Everything else is driven by `config.rsc`, **conditional on a mounted
+disk**:
 
-ext4 was chosen over exFAT/FAT so the same disk can later host container
-images (containers need POSIX semantics). That needs the `container`
-extra package + `/system/device-mode/update container=yes` (physical
-confirm) — not set up yet.
+- It waits up to ~15s for the disk to enumerate (USB can lag the script on
+  a fresh boot), then derives the path from the disk's actual mount-point
+  (not hard-coded `usb1`), auto-creates the `logs/` dir, retargets the
+  built-in `disk` action at `<mount>/logs/log`, and adds the rules.
+- **No disk mounted → no rules are added**, the `disk` action stays
+  dormant, and nothing is written — in particular, no fallback writes to
+  internal flash.
+- Verify after an apply: `/log print where message~"disk logging"` should
+  show `disk logging enabled -> usb1/logs/log`, not `… disabled`.
 
-If the disk is ever reformatted, re-run the two prep commands above before
-the next apply, or disk logging will have nowhere to write.
+Logging is **severity-based** (`info`/`warning`/`error`/`critical` → disk),
+*not* a catch-all — a `!debug`/empty-topics rule silently enables the
+`dns,packet` trace firehose (gated topics; see `LESSONS.md`). Rolling
+window ~6.5M lines (65535 × 100 files, `disk-stop-on-full=no` = overwrite
+oldest). Default memory/echo rules stay intact, so `/log print` still reads
+the volatile buffer. Files land as `usb1/logs/log.0.txt`, `log.1.txt`, …
+
+ext4 (over exFAT/FAT) so the same disk can later host container images
+(containers need POSIX semantics) — needs the `container` package +
+`/system/device-mode/update container=yes` (physical confirm), not set up
+yet.
+
+Reformat is now self-healing: just re-run the `format` above; the `logs/`
+dir and rules come back on the next apply.
 
 ## Sensitive material
 

@@ -1254,41 +1254,50 @@ set [find interface=sfp-sfpplus1] script="/system script run wan-reconciler"
     :log warning "config.rsc: /system scheduler add failed (cold-bootstrap device-mode reset?). Event-driven reconciler still active; re-enable scheduler via /system device-mode + button-confirm to restore polling."
 }
 
-# --- logging to disk (USB SSD) ---
-# Non-essential / below the lockout gate on purpose: the numeric window
-# values aren't lockout prereqs, and if a value ever errors at runtime
-# during replay it halts here (harmless -- SSH/bridge/VLAN already up,
-# just fix-and-reapply) rather than before the gate.
-# Long-term log store on the ext4 USB SSD (slot usb1, mounted at usb1).
-# One-time disk prep -- `/disk format usb1 file-system=ext4 label=usb1`
-# then `/file add name=usb1/logs type=directory` -- is a manual hardware
-# step (see README). The ext4 contents (incl. the logs/ dir) are NOT
-# touched by reset-configuration, so the path persists across applies;
-# that's why the mkdir isn't replayed here.
-# The built-in `disk` action is a RouterOS default that survives a
-# no-defaults reset, so we `set` it (not `add`) -- retarget it to the
-# SSD with a rolling window (~6.5M lines = 65535 lines x 100 files;
-# 65535 is the per-file max), circular (stop-on-full=no overwrites
-# oldest).
-# Subscribe to disk by SEVERITY (info/warning/error/critical), mirroring
-# what the default memory/echo rules cover -- NOT a blanket `!debug` or
-# empty-topics catch-all. Gotcha: verbose trace topics (dns query /
-# `dns,packet`, and other per-packet tracing) are gated -- a subsystem
-# only EMITS them if a logging rule subscribes to that topic. A negation
-# catch-all (`!debug`) matches `dns`/`packet`, which silently turns DNS
-# packet+query tracing ON network-wide (~26 lines/sec firehose, 99.97%
-# noise -- see LESSONS / git history). Real events always carry a
-# severity topic; the traces don't, so severity-based rules capture
-# every event without enabling any firehose. Default memory/echo rules
-# stay intact, so `/log print` still reads the volatile buffer.
-/system logging action
-set [find name=disk] disk-file-name=usb1/logs/log disk-lines-per-file=65535 \
-    disk-file-count=100 disk-stop-on-full=no
-/system logging
-add topics=info action=disk
-add topics=warning action=disk
-add topics=error action=disk
-add topics=critical action=disk
+# --- logging to disk (USB disk, if present) ---
+# Below the lockout gate (not a lockout prereq; a runtime error here
+# halts harmlessly -- SSH/bridge/VLAN already up). CONDITIONAL on a
+# mounted disk: no disk -> no rules added, the built-in `disk` action
+# stays dormant and NOTHING is written (notably no fallback writes to
+# internal flash). The path is derived from the disk's actual
+# mount-point, not hard-coded "usb1".
+# Mount-timing: this runs during run-after-reset just after a reboot, and
+# USB enumeration can lag the script -- so retry detection for up to ~15s
+# before giving up (cf. boot-not-ready lessons: start-time=startup,
+# wan-reconciler). The :log line below is the verification -- after an
+# apply, /log should show "disk logging enabled", not "disabled".
+# The logs/ dir is auto-created here (idempotent); only the ext4 format
+# (`/disk format <slot> file-system=ext4`) is a manual hardware step (see
+# README).
+# Window ~6.5M lines (65535 lines x 100 files; 65535 is the per-file
+# max), circular (stop-on-full=no overwrites oldest). The `disk` action
+# is a RouterOS default (survives no-defaults reset) so we `set` it.
+# Subscribe by SEVERITY (info/warning/error/critical), mirroring the
+# default memory/echo rules -- NOT a `!debug`/empty-topics catch-all,
+# which silently enables the dns,packet trace firehose (gated topics --
+# see LESSONS). Default memory/echo rules stay intact, so `/log print`
+# still reads the volatile buffer.
+:local disks [/disk find where mount-point!=""]
+:local tries 0
+:while ([:len $disks]=0 && $tries<15) do={
+    :delay 1s
+    :set tries ($tries + 1)
+    :set disks [/disk find where mount-point!=""]
+}
+:if ([:len $disks] > 0) do={
+    :local mp [/disk get [:pick $disks 0] mount-point]
+    :if ([:len [/file find where name="$mp/logs"]]=0) do={
+        /file add name="$mp/logs" type=directory
+    }
+    /system logging action set [find name=disk] disk-file-name="$mp/logs/log" disk-lines-per-file=65535 disk-file-count=100 disk-stop-on-full=no
+    /system logging add topics=info action=disk
+    /system logging add topics=warning action=disk
+    /system logging add topics=error action=disk
+    /system logging add topics=critical action=disk
+    :log info ("config.rsc: disk logging enabled -> " . $mp . "/logs/log")
+} else={
+    :log warning "config.rsc: no mounted disk; disk logging disabled"
+}
 
 # --- LEDs + reset-button-press toggle (cosmetic; placed at the end) ---
 # Default: turn off the front-panel LEDs after 1h of uptime. Lets us
