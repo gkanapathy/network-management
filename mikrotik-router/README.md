@@ -206,6 +206,31 @@ client-side cleanup from the button-reset section apply here too. We
 don't keep binary `.backup` artifacts — rollback is via git, not
 `/system backup load`.
 
+## Looking up command syntax on the live router
+
+RouterOS has a built-in introspection command — handy when you're unsure
+of a command name, its arguments, or a menu's contents (non-interactive
+SSH can't use the interactive `?` completion). Paths are **comma-
+separated**, not slash-separated:
+
+```
+# arguments/properties a command accepts (e.g. /disk format):
+/console/inspect request=syntax path=disk,format
+
+# subcommands under a menu (e.g. what lives under /disk):
+/console/inspect request=child path=disk as-value
+```
+
+This is how the `/disk` format command turned out to be `format` (not the
+older `format-drive`) and which params it takes (`file-system`, `label`).
+
+Caveat: `inspect` shows argument *names*, **not** integer value ranges.
+Valid ranges surface only from the runtime error (e.g.
+`disk-lines-per-file out of range (1..65535)`) or the docs — which is how
+the 65535 per-file log-line cap was found, after a first apply tried
+200000 and halted. (Hence: numeric-valued blocks belong below the
+lockout gate, so a range error halts harmlessly — see config.rsc.)
+
 ## Common pitfalls
 
 - **L3 IPs must live on `/interface vlan` sub-interfaces, not on `bridge`,
