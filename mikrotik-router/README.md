@@ -252,6 +252,32 @@ don't keep binary `.backup` artifacts — rollback is via git, not
   from-pool interface uses `/ipv6 address ... advertise=yes/no`
   instead. Background in [`LESSONS.md`](LESSONS.md).
 
+## Disk (USB SSD)
+
+A USB SSD (slot `usb1`) holds the long-term log store. The filesystem is
+hardware state, **not** part of `config.rsc` (reset-configuration doesn't
+touch disk contents), so it's prepared once by hand:
+
+```
+/disk format usb1 file-system=ext4 label=usb1   # ext4 = container-ready too
+/file add name=usb1/logs type=directory
+```
+
+`config.rsc` then retargets the built-in `disk` logging action at
+`usb1/logs/log` and adds a catch-all (empty-topics) rule, so **all** log
+events — including debug — roll to disk. Rolling window is ~20M lines
+(200k lines × 100 files, `disk-stop-on-full=no` = overwrite oldest). The
+default memory/echo rules are left intact, so `/log print` still reads the
+volatile buffer. Files land as `usb1/logs/log.0.txt`, `log.1.txt`, …
+
+ext4 was chosen over exFAT/FAT so the same disk can later host container
+images (containers need POSIX semantics). That needs the `container`
+extra package + `/system/device-mode/update container=yes` (physical
+confirm) — not set up yet.
+
+If the disk is ever reformatted, re-run the two prep commands above before
+the next apply, or disk logging will have nowhere to write.
+
 ## Sensitive material
 
 Currently none in `config.rsc`:

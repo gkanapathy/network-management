@@ -1254,6 +1254,30 @@ set [find interface=sfp-sfpplus1] script="/system script run wan-reconciler"
     :log warning "config.rsc: /system scheduler add failed (cold-bootstrap device-mode reset?). Event-driven reconciler still active; re-enable scheduler via /system device-mode + button-confirm to restore polling."
 }
 
+# --- logging to disk (USB SSD) ---
+# Non-essential / below the lockout gate on purpose: the numeric window
+# values aren't lockout prereqs, and if a value ever errors at runtime
+# during replay it halts here (harmless -- SSH/bridge/VLAN already up,
+# just fix-and-reapply) rather than before the gate.
+# Long-term log store on the ext4 USB SSD (slot usb1, mounted at usb1).
+# One-time disk prep -- `/disk format usb1 file-system=ext4 label=usb1`
+# then `/file add name=usb1/logs type=directory` -- is a manual hardware
+# step (see README). The ext4 contents (incl. the logs/ dir) are NOT
+# touched by reset-configuration, so the path persists across applies;
+# that's why the mkdir isn't replayed here.
+# The built-in `disk` action is a RouterOS default that survives a
+# no-defaults reset, so we `set` it (not `add`) -- retarget it to the
+# SSD with a rolling window (~6.5M lines = 65535 lines x 100 files;
+# 65535 is the per-file max), circular (stop-on-full=no overwrites
+# oldest). The catch-all rule (empty topics) sends EVERYTHING incl.
+# debug to disk; the default memory/echo rules are left intact, so a
+# quick `/log print` still reads the volatile memory buffer.
+/system logging action
+set [find name=disk] disk-file-name=usb1/logs/log disk-lines-per-file=65535 \
+    disk-file-count=100 disk-stop-on-full=no
+/system logging
+add action=disk
+
 # --- LEDs + reset-button-press toggle (cosmetic; placed at the end) ---
 # Default: turn off the front-panel LEDs after 1h of uptime. Lets us
 # see boot health visually for the first hour, then dark.
