@@ -101,12 +101,15 @@ in between:
 After a reset, check that `starting` and `done` both appear:
 
 ```fish
-ssh admin@192.168.88.1 '/log/print where message~"config.rsc"'
+ssh admin@192.168.88.1 '/log/print where message~"config.rsc" and buffer=memory'
 ```
 
-If only `starting` shows, the script aborted partway — `done` missing means
-the script hit an error somewhere. Read the full log (`/log/print`) for the
-error, fix `config.rsc`, re-apply.
+The `buffer=memory` scopes to the current boot. Without it, `/log` unions
+the **disk** buffer too (with disk logging on — see § Disk), which surfaces
+every *past* apply's `starting`/`done` markers and makes the current run
+hard to pick out. If only `starting` shows, the script aborted partway —
+`done` missing means it hit an error somewhere. Read the current boot's log
+(`/log/print where buffer=memory`) for the error, fix `config.rsc`, re-apply.
 
 ## Recovery
 
@@ -309,8 +312,17 @@ disk**:
 - **No disk mounted → no rules are added**, the `disk` action stays
   dormant, and nothing is written — in particular, no fallback writes to
   internal flash.
-- Verify after an apply: `/log print where message~"disk logging"` should
-  show `disk logging enabled -> usb1/logs/log`, not `… disabled`.
+- Verify after an apply: `/log print where message~"disk logging" and
+  buffer=memory` should show `disk logging enabled -> usb1/logs/log`, not
+  `… disabled`.
+
+**`/log print` unions all buffers.** Each entry is tagged `buffer=memory`
+/ `buffer=disk` / etc., and the disk buffer exposes the *entire* on-disk
+log. So with disk logging on, a message caught by both the default
+`→memory` rule and our `→disk` rule appears **twice** in plain `/log
+print`, and old entries from past boots show up too. For the clean,
+single-entry, current-boot view, filter `where buffer=memory`. The disk
+*files* are not duplicated — that's purely a `/log` view artifact.
 
 Logging is **severity-based** (`info`/`warning`/`error`/`critical` → disk),
 *not* a catch-all — a `!debug`/empty-topics rule silently enables the

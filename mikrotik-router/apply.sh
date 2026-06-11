@@ -156,16 +156,21 @@ ssh-keygen -R "$ROUTER_HOST" >/dev/null 2>&1 || true
 ssh-keyscan -q -T 5 -t ed25519 "$ROUTER_HOST" 2>/dev/null >> ~/.ssh/known_hosts || true
 
 # === 5. verify completion =====================================================
-# Poll for THIS apply's nonced "config.rsc: done" marker. The nonce
-# makes the check robust against (a) SSH coming up before import
-# is done (the race -- we poll until the marker appears or timeout)
-# and (b) /log preserving prior applies' "done" entries across reset
-# (the false-pass -- only matching the per-apply nonce avoids this).
+# Poll for THIS apply's nonced "config.rsc: done" marker, scoped to the
+# memory buffer. Scoping + nonce make the check robust against (a) SSH
+# coming up before import is done (the race -- we poll until the marker
+# appears or timeout) and (b) the disk log buffer: with disk logging on,
+# `/log` unions memory+disk, so an unscoped query returns EVERY past
+# apply's "done" markers (they persist in the disk file forever).
+# `buffer=memory` limits to the current boot (memory is wiped on reboot);
+# the per-apply nonce is belt-and-suspenders. The marker is logged at
+# `:log info` -> the default info->memory rule, so it's always present in
+# buffer=memory.
 echo "==> polling for config.rsc: done apply-$NONCE marker"
 attempt=0
 marker_seen=0
 while [ $attempt -lt 60 ]; do
-    if $SSH_NOKHOST "$ROUTER" '/log print where message~"config.rsc"' 2>/dev/null | grep -qF "config.rsc: done apply-$NONCE"; then
+    if $SSH_NOKHOST "$ROUTER" '/log print where message~"config.rsc" and buffer=memory' 2>/dev/null | grep -qF "config.rsc: done apply-$NONCE"; then
         marker_seen=1
         break
     fi
@@ -175,7 +180,7 @@ done
 if [ "$marker_seen" -eq 0 ]; then
     echo "ERROR: 'config.rsc: done apply-$NONCE' marker not observed within ~2 minutes — import likely aborted mid-script" >&2
     echo "       last 10 config.rsc log entries:" >&2
-    $SSH_NOKHOST "$ROUTER" '/log print where message~"config.rsc"' 2>/dev/null | tail -10 >&2 || true
+    $SSH_NOKHOST "$ROUTER" '/log print where message~"config.rsc" and buffer=memory' 2>/dev/null | tail -10 >&2 || true
     exit 1
 fi
 echo "    config.rsc: done marker present (apply-$NONCE, $attempt polls)"

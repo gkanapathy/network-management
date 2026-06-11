@@ -1265,7 +1265,8 @@ set [find interface=sfp-sfpplus1] script="/system script run wan-reconciler"
 # USB enumeration can lag the script -- so retry detection for up to ~15s
 # before giving up (cf. boot-not-ready lessons: start-time=startup,
 # wan-reconciler). The :log line below is the verification -- after an
-# apply, /log should show "disk logging enabled", not "disabled".
+# apply, `/log print where buffer=memory` should show "disk logging
+# enabled", not "disabled" (buffer=memory = current boot, dedup'd).
 # The logs/ dir is auto-created here (idempotent); only the ext4 format
 # (`/disk format <slot> file-system=ext4`) is a manual hardware step (see
 # README).
