@@ -1,0 +1,59 @@
+SAMPLE LOG EXCERPT — Monkeybrains IPv6 loss
+Router: MikroTik RB5009. Times are local (router clock, NTP-synced).
+============================================================================
+
+HOW THE MONITORING WORKS (so these lines are interpretable):
+The router runs ICMP probes every 10 seconds, in parallel, over the SAME
+Monkeybrains link:
+  - IPv6 full path : ping 2606:4700:4700::1111 (Cloudflare) sourced from our
+                     delegated /56  -> "host: 2606:4700:4700::1111"
+  - IPv4 first hop : ping 162.217.74.129 (our MB gateway)
+  - IPv4 full path : ping 1.0.0.1 (Cloudflare), route-pinned out the MB link
+A probe "down" = a full 3-packet round lost (each packet 2s timeout). Each
+outage below lasts ~10s, i.e. recovers on the very next probe round.
+
+
+--- REPRESENTATIVE IPv6 BURST: 2026-06-14, 22:02-22:12 (~10 min) ---
+13 separate IPv6 outages in 10 minutes. Note the tight re-flapping: drops,
+recovers for one 10s round, drops again. This pattern repeats every evening.
+
+  22:02:50  IPv6 DOWN
+  22:03:00  IPv6 up   (10s outage)
+  22:03:10  IPv6 DOWN
+  22:03:20  IPv6 up   (10s)
+  22:04:20  IPv6 DOWN
+  22:04:30  IPv6 up   (10s)
+  22:04:40  IPv6 DOWN
+  22:05:00  IPv6 up   (20s)
+  22:05:20  IPv6 DOWN
+  22:05:32  IPv6 up   (12s)
+  22:06:40  IPv6 DOWN
+  22:07:00  IPv6 up   (20s)
+  22:09:21  IPv6 DOWN
+  22:09:30  IPv6 up   (9s)
+  22:11:11  IPv6 DOWN
+  22:11:31  IPv6 up   (20s)
+  22:11:51  IPv6 DOWN
+  22:12:00  IPv6 up   (9s)
+
+Throughout this entire window, BOTH IPv4 probes (gateway and full-path)
+stayed UP -- they logged nothing, because they never failed. IPv4 over the
+identical link was unaffected while IPv6 dropped 13 times.
+
+
+--- THE ONLY IPv4 EVENTS THAT ENTIRE DAY (2026-06-14) ---
+For contrast, here are the only two IPv4 blips in 24 hours -- both isolated,
+both ~10s, vs 165 IPv6 outages the same day:
+
+  13:33:44  event down  host: 162.217.74.129   (gateway)
+  13:33:44  event down  host: 1.0.0.1          (full path)
+  13:33:54  event up    host: 162.217.74.129
+  13:33:54  event up    host: 1.0.0.1
+      ^ both v4 probes down together for 10s = a brief whole-link blip
+
+  16:12:46  event down  host: 1.0.0.1          (full path only; gateway fine)
+  16:12:56  event up    host: 1.0.0.1
+      ^ a single 10s loss beyond the gateway, in MB's network
+
+
+Full raw logs (all events, all days) available on request.

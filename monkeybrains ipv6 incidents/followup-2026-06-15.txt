@@ -1,0 +1,68 @@
+MONKEYBRAINS SUPPORT — FOLLOW-UP (prepared 2026-06-15)
+=======================================================
+
+SUBJECT
+-------
+Follow-up: IPv6 packet loss still ongoing & worsening — 9 days, still v6-only
+
+
+MESSAGE
+-------
+Following up on my support request from ~June 8 (recurring IPv6-only packet
+loss), to which I haven't had a reply. The problem has continued every day
+since and, if anything, has gotten worse. I've now been logging it
+continuously to disk on my router and have a clean multi-day dataset.
+
+Service identifiers:
+  - IPv4: 162.217.74.176/26, gateway 162.217.74.129
+  - IPv6: delegated prefix 2607:f598:d488:6100::/56 (DHCPv6-PD)
+
+The setup, briefly: my router runs ICMP probes every 10 seconds, in parallel,
+over this same Monkeybrains link -- IPv6 to a Cloudflare anycast address,
+IPv4 to my gateway (first hop), and IPv4 to a Cloudflare address (full path).
+A "down" = a full 3-packet round lost. This lets me compare IPv4 and IPv6
+health on the identical link, second-for-second.
+
+Daily outage counts (complete days unless noted):
+
+  Date      IPv6 outages   IPv4 outages   Notes
+  --------  ------------   ------------   ---------------------------------
+  Jun 11        193             16 *      partial day (logging began ~05:15)
+  Jun 12        233              7
+  Jun 13         55              2
+  Jun 14        165              3
+  Jun 15        100 *            0         partial (through ~21:54)
+  --------  ------------   ------------
+  TOTAL         746             28
+
+  (IPv4 column = gateway + full-path events combined.)
+  * partial-day windows, so true daily totals are higher.
+
+The pattern, consistently:
+  - IPv6 fails 55-233 times per day. IPv4 over the exact same link fails
+    0-2 times on a typical day -- a 30-100x difference. Your gateway answers
+    essentially every probe; the loss is in IPv6 forwarding specifically.
+  - It is bursty/episodic, not steady. IPv6 holds fine for stretches, then
+    goes into a flapping fit for several minutes -- dropping, recovering for
+    ~10 seconds, dropping again, repeatedly -- then settles. (See the
+    attached sample: 13 IPv6 outages in 10 minutes on the evening of Jun 14.)
+  - It is worst in the evenings (roughly 5pm-midnight) with a smaller
+    late-morning bump, and quiet overnight.
+  - My physical link is healthy throughout: the IPv4 gateway probe shows no
+    sustained loss, and my second ISP on the same router shows zero issues
+    over the whole period.
+
+This looks like an unstable IPv6 path or a route/session repeatedly
+reconverging on your side, rather than congestion. I'd appreciate someone
+taking a look at the IPv6 routing/transit for my circuit. Happy to provide
+full raw logs, run any tests, or take a maintenance window.
+
+
+ATTACHMENTS
+-----------
+  log-sample-2026-06-14-evening-burst.txt
+      Annotated 10-minute sample showing a typical IPv6 flapping burst (13
+      outages) with IPv4 unaffected on the same link, plus the only two IPv4
+      blips of that entire day for contrast.
+  (Full raw router logs for Jun 11-15 available on request -- ~73,000 lines,
+   omitted here for size.)
